@@ -132,10 +132,33 @@ test('бюджет: дорогі рішення не потрапляють у �
   assert.ok([...r2.items, ...r2.more].some((i) => i.sol.level === 4));
 });
 
-test('сезон: влітку в режимі «5 хвилин» охолодження є, зігрівання немає', () => {
+test('сезон: влітку в спеку охолодження є, а зігрівання не нав’язується', () => {
   const ctx = ctxOf({ season: 'summer', state: { roomC: 33 } });
   assert.ok(recommend('cool', ctx, '5').items.length > 0);
-  assert.equal(recommend('heat', ctx, '5').items.length, 0);
+  const h = recommend('heat', ctx, '5');
+  assert.equal(h.items.length, 0);
+  assert.ok(h.irrelevant && h.noneText.includes('+33'));
+  assert.ok(recommend('heat', ctx, 'long').items.length > 0, 'наперед можна готуватися');
+});
+
+test('сезон не відкидає рішення: обрана потреба завжди має варіанти, якщо температура не суперечить', () => {
+  for (const season of SEASON_ORDER) for (const need of NEED_ORDER) for (const mode of ['5', '30', 'long']) {
+    const r = recommend(need, ctxOf({ season }), mode);
+    assert.ok(r.items.length > 0, `${season} ${need} ${mode}`);
+  }
+  const cool = recommend('cool', ctxOf({ season: 'winter', state: { roomC: 28 } }), '30');
+  assert.ok(cool.items.length > 0 && !cool.irrelevant);
+  const cold = recommend('cool', ctxOf({ season: 'summer', state: { roomC: 16 } }), '30');
+  assert.ok(cold.irrelevant && cold.items.length === 0);
+  const inSeason = recommend('cool', ctxOf({ season: 'summer' }), '30', 10).items;
+  const offSeason = recommend('cool', ctxOf({ season: 'winter' }), '30', 10).items;
+  assert.ok(inSeason.length && offSeason.length);
+});
+
+test('план не повторює ту саму дію для різних потреб', () => {
+  const p = planFromState(ctxOf({ state: { power: false, gas: false, tap: false, waterL: 1, adults: 2, roomC: 10 } }));
+  const texts = p.needs.flatMap((n) => n.actions.map((a) => a.text));
+  assert.equal(new Set(texts).size, texts.length, texts.join(' | '));
 });
 
 test('режим часу: «5 хвилин» лише швидкі кроки', () => {
@@ -152,8 +175,10 @@ test('«Зробіть зараз»: три короткі дії; при сил
 });
 
 test('попередження стану: вода, спека, детектор CO', () => {
-  const al = stateAlerts(ctxOf({ state: { waterL: 5, adults: 2 } }));
+  const al = stateAlerts(ctxOf({ state: { waterL: 5, adults: 2, tap: false } }));
   assert.ok(al.some((a) => a.id === 'water1' && a.level === 'danger'));
+  const tapOn = stateAlerts(ctxOf({ state: { waterL: 5, adults: 2, tap: true } }));
+  assert.ok(tapOn.some((a) => a.id === 'water1' && a.level === 'caution' && a.text.includes('з крана')), 'є водогін — наберіть запас, а не «небезпечно»');
   const hot = stateAlerts(ctxOf({ state: { roomC: 36 } }));
   assert.ok(hot.some((a) => a.id === 'hot35' && a.level === 'danger'));
   const co = stateAlerts(ctxOf({ profile: { equip: ['burner'] } }));

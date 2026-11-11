@@ -255,6 +255,15 @@ export const NONE_TEXT = {
   hygiene: 'Відповідного рішення зараз немає. Мінімум — чисті руки перед їжею й після туалету.',
 };
 
+/** Температура для підказок: «+24 °C». @param {number} t */
+const tTxt = (t) => `${t > 0 ? '+' : t < 0 ? '−' : ''}${Math.abs(Math.round(t))}\u00A0°C`;
+
+/** Коли потреба не відповідає ситуації: зігріватися в теплі чи охолоджуватися в прохолоді. */
+const IRRELEVANT_TEXT = {
+  heat: (/** @type {number} */ t) => `У кімнаті ${tTxt(t)} — зігріватися зараз не потрібно. Якщо вам холодно в теплі, це може бути ознакою хвороби: зверніться до лікаря, а в разі погіршення — 103.`,
+  cool: (/** @type {number} */ t) => `У кімнаті ${tTxt(t)} — охолоджуватися зараз не потрібно. Пийте воду за спрагою. Якщо почуваєтеся перегрітими в прохолоді, зверніться до лікаря.`,
+};
+
 /**
  * Головна функція підбору.
  * @param {Need} need
@@ -268,14 +277,18 @@ export function recommend(need, ctx, mode = '5', limit = 3) {
   /** @type {{sol: Solution, missing: string[]}[]} */ const wouldHelp = [];
   /** @type {(Solution|Myth)[]} */
   const pool = [...SOLUTIONS, ...MYTHS].filter((x) => x.need === need);
+  // Потреба суперечить температурі в кімнаті: у швидких режимах нічого не нав’язуємо
+  const t = ctx.roomC;
+  const irrelevant = mode !== 'long' && t != null && ((need === 'heat' && t >= 24) || (need === 'cool' && t < 20));
   for (const sol of pool) {
     if ('myth' in sol) { blocked.push({ sol, why: 'Небезпечно — не робіть цього' }); continue; }
     const rule = sol.places && sol.places[ctx.place];
     if (rule === 'na') continue;
     const gate = safetyGate(sol, ctx);
     if (!gate.ok) { blocked.push({ sol, why: gate.why || 'Небезпечно' }); continue; }
-    const inSeason = sol.seasons.includes(ctx.season);
-    if (!inSeason && mode !== 'long') continue;
+    if (irrelevant) continue;
+    // Сезон впливає на порядок (див. scoreSolution), а не відкидає рішення:
+    // людина сама обрала потребу — значить, вона актуальна зараз
     if (mode !== 'long' && PREP_ONLY_LONG(sol)) continue;
     const f = feasibility(sol, ctx);
     if (f.conditionMissing.length) {
@@ -311,7 +324,8 @@ export function recommend(need, ctx, mode = '5', limit = 3) {
     more: items.slice(limit),
     blocked,
     none: items.length === 0,
-    noneText: NONE_TEXT[need],
+    irrelevant,
+    noneText: irrelevant && t != null && (need === 'heat' || need === 'cool') ? IRRELEVANT_TEXT[need](t) : NONE_TEXT[need],
     wouldHelp: helpGroups.slice(0, 3).map(groupLabel),
   };
 }
@@ -399,9 +413,13 @@ export function planFromState(ctx) {
     .filter((n) => !(n === 'cool' && ctx.season === 'winter' && (t == null || t < 26)))
     .filter((n) => !(n === 'heat' && ctx.season === 'summer' && (t == null || t >= 18)))
     .sort((a, b) => w[b] - w[a] || NEED_ORDER.indexOf(a) - NEED_ORDER.indexOf(b));
+  const used = new Set();
   const needs = order.slice(0, 4).map((need) => {
     const r = recommend(need, ctx, '30', 1);
-    return { need, weight: w[need], rec: r.items[0] || null, noneText: r.noneText, actions: quickActions(need, ctx).slice(0, 2) };
+    // Одна й та сама дія (напр. «краник» для води й гігієни) — лише один раз у плані
+    const actions = quickActions(need, ctx).filter((a) => !used.has(a.text)).slice(0, 2);
+    actions.forEach((a) => used.add(a.text));
+    return { need, weight: w[need], rec: r.items[0] || null, noneText: r.noneText, actions };
   });
   return { alerts, needs };
 }

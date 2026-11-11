@@ -197,9 +197,11 @@ function viewNeed(need, q) {
   const acts = quickActions(need, c);
   const r = recommend(need, c, mode, 3);
   const alertsHtml = alerts.map((a) => note(a.level, a.title, a.text, a.action && BY_ID.get(a.action) ? `<a class="note-a" href="#/s/${a.action}">${esc(BY_ID.get(a.action)?.title || '')}${icon('i-chev')}</a>` : '')).join('');
-  const recs = r.none
-    ? `<div class="none-art">${picImg('empty-none', 'pic-e')}</div>${note('caution', 'Безпечного рішення не знайдено', r.noneText)}`
-    : r.items.map(recCard).join('');
+  const recs = r.irrelevant
+    ? `${note('info', 'Зараз це не потрібно', r.noneText)}<button class="btn ghost wide" type="button" data-act="mode" data-v="long">Підготуватися наперед</button>`
+    : r.none
+      ? `<div class="none-art">${picImg('empty-none', 'pic-e')}</div>${note('caution', 'Безпечного рішення не знайдено', r.noneText)}`
+      : r.items.map(recCard).join('');
   const help = r.wouldHelp.length ? `<p class="hint">${icon('i-info')} Більше варіантів, якщо є: ${esc(r.wouldHelp.join('; '))}. <a href="#/res">Оновити резерв</a></p>` : '';
   const signs = signsFor(need, c);
   const blocked = r.blocked.length
@@ -210,11 +212,11 @@ function viewNeed(need, q) {
     tab: 'home',
     html: `${pageHead(meta.title, '#/', `${meta.label}: ${meta.sub}`)}
     ${alertsHtml}
-    <section class="card now" aria-labelledby="now-h">
+    ${r.irrelevant && !acts.length ? '' : `<section class="card now" aria-labelledby="now-h">
       <h2 id="now-h">Зробіть зараз</h2>
       ${acts.length ? `<ol class="now-list">${acts.map((a, i) => `<li><span class="n" aria-hidden="true">${i + 1}</span>${a.id ? `<a href="#/s/${a.id}">${esc(a.text)}</a>` : `<span>${esc(a.text)}</span>`}</li>`).join('')}</ol>` : `<p>${esc(r.noneText)}</p>`}
-    </section>
-    ${pic(`need-${need}`)}
+    </section>`}
+    ${r.irrelevant ? '' : pic(`need-${need}`)}
     ${seg('mode', MODES, mode, 'Скільки є часу')}
     <h2 class="h2">Найкращі варіанти для вас</h2>
     <div class="recs" aria-live="polite">${recs}</div>
@@ -319,7 +321,7 @@ function viewSolution(id) {
     </section>
     <section class="sec"><h2>Кроки</h2>
       <ol class="steps">${s.steps.map((st, i) => `<li><button type="button" class="step" data-act="step" data-id="${s.id}" data-i="${i}" aria-pressed="${done.has(i)}"><span class="box" aria-hidden="true">${icon('i-check')}</span><span class="num">${i + 1}</span><span class="txt">${esc(st)}</span></button></li>`).join('')}</ol>
-      <p class="hint">Торкніться кроку, щоб позначити виконаним.</p>
+      <p class="steps-st${done.size && done.size === s.steps.length ? ' all' : ''}" id="steps-st" aria-live="polite">${stepsStatus(done.size, s.steps.length)}</p>
     </section>
     <section class="sec">${note(s.risk === 'caution' ? 'caution' : 'info', 'Обмеження та ризики', '', `<ul>${s.limits.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>${c.vulnerable && s.vulnerableRisk ? `<p><b>Для вразливих людей:</b> ${esc(s.vulnerableRisk)}</p>` : ''}`)}</section>
     ${alt ? `<section class="sec"><h2>Безпечна альтернатива</h2><a class="card mini" href="#/s/${alt.id}"><span class="mini-t">${esc(alt.title)}</span><span class="muted">${esc(s.altText)}</span>${icon('i-chev', 'end')}</a></section>` : ''}
@@ -328,6 +330,13 @@ function viewSolution(id) {
     </section>
     <section class="sec"><h2>Джерела</h2>${sourcesList(s.sources)}</section>`,
   };
+}
+
+/** Підказка під кроками: скільки виконано й похвала наприкінці. @param {number} n @param {number} total */
+function stepsStatus(n, total) {
+  if (!n) return 'Торкніться кроку, щоб позначити виконаним.';
+  if (n >= total) return `${icon('i-check')}<b>Усі кроки виконано — чудова робота!</b> Ви подбали про себе й близьких.`;
+  return `Виконано ${n} з ${total}. Так тримати!`;
 }
 
 /** @param {import('./types').Myth} m @returns {View} */
@@ -376,10 +385,13 @@ function libFilters() {
   const levelOpts = [{ v: '', label: 'Будь-який' }, ...[1, 2, 3, 4].map((l) => ({ v: String(l), label: LEVELS[/** @type {1|2|3|4} */ (l)].label }))];
   const row = (/** @type {string} */ title, /** @type {string} */ act, /** @type {{v:string,label:string}[]} */ opts, /** @type {string} */ cur) =>
     `<div class="frow"><span class="flabel">${title}</span><div class="chips">${opts.map((o) => chip(act, o.v, o.label, o.v === cur)).join('')}</div></div>`;
+  const extra = (lib.season ? 1 : 0) + (lib.level ? 1 : 0) + (lib.onlyNow ? 1 : 0);
   return `${row('Категорія', 'lib-need', needOpts, lib.need || '')}
-    ${row('Сезон', 'lib-season', seasonOpts, lib.season || '')}
-    ${row('Рівень', 'lib-level', levelOpts, lib.level ? String(lib.level) : '')}
-    <div class="frow"><div class="chips">${chip('lib-now', '1', 'Можна зробити зараз', lib.onlyNow)}</div></div>`;
+    <details class="card fold lib-more"${extra ? ' open' : ''}><summary>${icon('i-layers')}<span>Ще фільтри${extra ? ` · обрано ${extra}` : ''}</span></summary>
+      ${row('Сезон', 'lib-season', seasonOpts, lib.season || '')}
+      ${row('Рівень', 'lib-level', levelOpts, lib.level ? String(lib.level) : '')}
+      <div class="frow"><div class="chips">${chip('lib-now', '1', 'Можна зробити зараз', lib.onlyNow)}</div></div>
+    </details>`;
 }
 
 function libResults() {
@@ -395,7 +407,12 @@ function libResults() {
 function refreshLib(filters) {
   const out = document.getElementById('lib-out');
   if (out) out.innerHTML = libResults();
-  if (filters) { const f = document.getElementById('lib-filters'); if (f) f.innerHTML = libFilters(); }
+  if (filters) {
+    const f = document.getElementById('lib-filters');
+    const wasOpen = !!f?.querySelector('details.lib-more')?.hasAttribute('open');
+    if (f) f.innerHTML = libFilters();
+    if (wasOpen) f?.querySelector('details.lib-more')?.setAttribute('open', '');
+  }
 }
 
 on({
@@ -496,6 +513,12 @@ on({
     const set = (stepsDone[id] = stepsDone[id] || new Set());
     if (set.has(i)) set.delete(i); else set.add(i);
     el.setAttribute('aria-pressed', String(set.has(i)));
+    const st = document.getElementById('steps-st');
+    if (st) {
+      const total = main.querySelectorAll('.steps .step').length;
+      st.innerHTML = stepsStatus(set.size, total);
+      st.classList.toggle('all', set.size === total);
+    }
   },
   back: () => {
     if (navCount > 1 && history.length > 1) history.back();

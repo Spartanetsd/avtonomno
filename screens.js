@@ -11,7 +11,7 @@ import { app, on, esc, icon, illo, note, seg, chip, pageHead, plural, tempText, 
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -104,7 +104,7 @@ function stateView() {
     <div id="state-alerts">${stateAlertsHtml()}</div>
     <div class="row-btns sticky-actions">
       <a class="btn primary" href="#/plan">${icon('i-check')}<span>Знайти рішення</span></a>
-      <button class="btn ghost" type="button" data-act="st-clear">Очистити стан</button>
+      <button class="btn ghost" type="button" data-act="st-clear" aria-label="Очистити стан сьогодні">Очистити</button>
     </div>`,
     after() {
       document.querySelectorAll('.stepper input').forEach((el) => {

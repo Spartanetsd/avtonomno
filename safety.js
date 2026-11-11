@@ -167,10 +167,12 @@ export function stateAlerts(ctx) {
 
   if (ctx.waterL != null && Number.isFinite(ctx.waterL) && ctx.n > 0) {
     const day = ctx.n * DRINK_PER_DAY;
-    if (ctx.waterL < day) {
+    if (ctx.waterL < day && ctx.tap === true) {
+      out.push({ id: 'water1', level: 'caution', need: 'water', title: `Питної води ${fmtL(ctx.waterL)}`, text: `Менше ніж на добу пиття для ${ctx.n} ${people(ctx.n)}, але вода з крана є. Наберіть запас у чисті ємності з кришками, поки подача не зникла; якщо є сумнів щодо якості — кип’ятіть.`, action: 'water-store', sources: ['sphere', 'readyWater'] });
+    } else if (ctx.waterL < day) {
       out.push({ id: 'water1', level: 'danger', need: 'water', title: `Питної води ${fmtL(ctx.waterL)}`, text: `Менше ніж на добу пиття для ${ctx.n} ${people(ctx.n)} (≈${DRINK_PER_DAY} л на людину). Пріоритет — пиття; шукайте приховані запаси й безпечні джерела.`, action: 'water-hidden', sources: ['sphere', 'readyWater'] });
     } else if (ctx.waterL < day * 3) {
-      out.push({ id: 'water3', level: 'caution', need: 'water', title: `Питної води ${fmtL(ctx.waterL)}`, text: `Вистачить на пиття менше ніж на 3 доби для ${ctx.n} ${people(ctx.n)}. Розподіліть запас і економте воду в побуті.`, action: 'water-calc', sources: ['sphere', 'readyWater'] });
+      out.push({ id: 'water3', level: ctx.tap === true ? 'info' : 'caution', need: 'water', title: `Питної води ${fmtL(ctx.waterL)}`, text: `Вистачить на пиття менше ніж на 3 доби для ${ctx.n} ${people(ctx.n)}. Розподіліть запас і економте воду в побуті.`, action: 'water-calc', sources: ['sphere', 'readyWater'] });
     }
   }
 

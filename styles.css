@@ -335,6 +335,11 @@ main.enter { animation: enter .28s cubic-bezier(.2, .7, .2, 1); }
 .pic-e { display: block; width: 128px; height: 128px; margin: 0 auto 10px; border-radius: 24px; }
 .pic-e.round { border-radius: 50%; }
 .empty.small .pic-e { width: 96px; height: 96px; }
+.steps-st { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 2px 0; color: var(--text-2); font-size: 15px; }
+.steps-st.all { padding: 12px 14px; border-radius: var(--r-md); background: var(--sage-soft); color: var(--sage-ink); }
+.steps-st .ic { width: 20px; height: 20px; flex: none; }
+.lib-more { margin: 10px 0 14px; }
+.lib-more .frow:first-of-type { margin-top: 6px; }
 .none-art .pic-e { width: 112px; height: 112px; margin: 4px auto 12px; }
 .phys-x .pic { margin: 4px 0 12px; }
 
@@ -416,9 +421,16 @@ main.enter { animation: enter .28s cubic-bezier(.2, .7, .2, 1); }
 
 .row-btns { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
 .sticky-actions {
-  position: sticky; bottom: calc(70px + env(safe-area-inset-bottom));
-  padding: 18px 0 8px; margin: 0;
-  background: linear-gradient(to bottom, transparent, var(--bg) 35%);
+  position: sticky; bottom: calc(58px + env(safe-area-inset-bottom));
+  flex-wrap: nowrap; margin: 8px 0 0; padding: 10px 0 18px;
+  background: var(--bg);
+  box-shadow: 0 -14px 14px -4px var(--bg);
+}
+.sticky-actions .btn { flex: 1 1 0; min-width: 0; padding: 0 12px; font-size: 16px; }
+.sticky-actions .btn.primary { flex-grow: 1.7; }
+@media (max-width: 340px) {
+  .tabbar a { font-size: 11px; letter-spacing: -.01em; white-space: nowrap; }
+  .sticky-actions .btn .ic { display: none; }
 }
 
 .field { margin: 14px 0; }
