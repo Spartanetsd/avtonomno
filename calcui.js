@@ -5,7 +5,7 @@ import * as store from './store.js';
 import { battery, waterHeat, waterNeeds, energyPlan, fmt, fmtHours, K_PRESETS, WATER_PRESETS, ENERGY_CATS, DEVICE_PRESETS, num } from './calc.js';
 import { PHYSICS, PHYSICS_BY_ID, jouleWh, faradayHours, carnotEta, fourierRelative, newtonTemp, NEWTON_VESSELS } from './physics.js';
 import { SOLUTIONS } from './solutions.js';
-import { app, on, esc, icon, note, pageHead, chip, plural } from './ui.js';
+import { app, on, esc, icon, note, pageHead, chip, plural, pic } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
@@ -101,6 +101,7 @@ function listView() {
     title: 'Розрахунки',
     tab: 'calc',
     html: `${pageHead('Розрахунки', '', 'Робочі інструменти — без інтернету')}
+    ${pic('calc')}
     <div class="list">${cards.map((c) => `<a class="card calc-card" href="#/calc/${c.id}"><span class="cc-i">${icon(c.i)}</span><span><b>${esc(c.t)}</b><span class="muted">${esc(c.d)}</span></span>${icon('i-chev', 'end')}</a>`).join('')}</div>
     <h2 class="h2" id="phys">Пояснює фізика</h2>
     <p class="hint">Принципи, пов’язані з роботами відомих учених. Факти, висновки й ілюстрації позначено окремо; цитати не вигадано.</p>
@@ -116,6 +117,7 @@ function physCard(p) {
     <p class="example">${icon('i-home')}<span>${esc(p.example)}</span></p>
     <div class="row-btns"><button class="btn small primary" type="button" data-act="phys-open" data-v="${p.id}" aria-expanded="false" aria-controls="phx-${p.id}">Зрозуміти за 30 секунд</button><a class="linkbtn" href="#/physics/${p.id}">Детальніше</a></div>
     <div class="phys-x" id="phx-${p.id}" hidden>
+      ${pic(`phys-${p.id}`, { cap: false, note: true })}
       <p><span class="tag fact">Науковий факт</span>${esc(p.fact)}</p>
       <p><span class="tag eng">Інженерний висновок</span>${esc(p.engineering)}</p>
       <p><span class="tag ill">Ілюстрація застосунку</span>${esc(p.illustration)}</p>
@@ -428,7 +430,8 @@ function physicsView(id) {
     title: p.name,
     tab: 'calc',
     html: `${pageHead(p.name, '#/calc', `${p.years} · ${p.topic}`)}
-    <div class="phys-hero">${portrait(p.id)}<p class="lead">${esc(p.principle)}</p></div>
+    ${pic(`phys-${p.id}`, { note: true, eager: true })}
+    <p class="lead">${esc(p.principle)}</p>
     <section class="sec"><h2>Науковий факт</h2><p>${esc(p.fact)}</p></section>
     <section class="sec"><h2>Інженерний висновок</h2><p>${esc(p.engineering)}</p></section>
     <section class="sec"><h2>Ілюстрація застосунку</h2><p>${esc(p.illustration)}</p><p class="muted">${esc(p.example)}</p></section>

@@ -6,6 +6,7 @@ import { SOLUTIONS, MYTHS, BY_ID } from './solutions.js';
 import { SOURCES, SEASONS, NEEDS, NEED_ORDER, RESERVE_CATALOG, LEVELS } from './data.js';
 import { PHYSICS } from './physics.js';
 import { RULES, SYMPTOMS } from './safety.js';
+import { PICS, PIC_FILES, homePicKey } from './pics.js';
 
 const SEASON_KEYS = ['winter', 'spring', 'summer', 'autumn'];
 
@@ -123,4 +124,48 @@ test('плоска структура: жодних підпапок у проє
   const dirs = readdirSync(new URL('.', import.meta.url), { withFileTypes: true })
     .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !['node_modules', '_site'].includes(d.name));
   assert.deepEqual(dirs.map((d) => d.name), []);
+});
+
+/** Розмір WebP із заголовка файла (VP8, VP8L, VP8X). @param {Buffer} b */
+function webpSize(b) {
+  if (b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WEBP') return null;
+  const chunk = b.toString('ascii', 12, 16);
+  if (chunk === 'VP8X') return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+  if (chunk === 'VP8 ') return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+  if (chunk === 'VP8L') { const v = b.readUInt32LE(21); return { w: (v & 0x3fff) + 1, h: ((v >> 14) & 0x3fff) + 1 }; }
+  return null;
+}
+
+test('ілюстрації: файли WebP існують, розміри збігаються, є опис і підписи', () => {
+  for (const [key, p] of Object.entries(PICS)) {
+    const url = new URL(`./${p.src}`, import.meta.url);
+    assert.ok(existsSync(url), `немає файла ${p.src}`);
+    const buf = readFileSync(url);
+    const size = webpSize(buf);
+    assert.ok(size, `${p.src}: не WebP`);
+    assert.deepEqual(size, { w: p.w, h: p.h }, `${p.src}: розмір`);
+    assert.ok(buf.length < 200 * 1024, `${p.src}: завеликий файл (${Math.round(buf.length / 1024)} КБ)`);
+    assert.equal(typeof p.alt, 'string', `${key}: alt`);
+    if (/^(home|need|season|phys)-/.test(key)) assert.ok(p.alt.length > 20 && (p.cap || '').length > 20, `${key}: опис і підпис-підтримка`);
+    if (key.startsWith('phys-')) assert.ok((p.note || '').length > 20, `${key}: позначка реконструкції`);
+  }
+  const total = PIC_FILES.reduce((n, f) => n + readFileSync(new URL(`./${f}`, import.meta.url)).length, 0);
+  assert.ok(total < 3 * 1024 * 1024, `усі картинки разом завеликі: ${Math.round(total / 1024)} КБ`);
+});
+
+test('ілюстрації є для кожної ситуації, сезону, фізика й пори доби', () => {
+  for (const n of NEED_ORDER) assert.ok(PICS[`need-${n}`] && PICS[`ico-${n}`], n);
+  for (const s of SEASON_KEYS) assert.ok(PICS[`season-${s}`], s);
+  for (const p of PHYSICS) assert.ok(PICS[`phys-${p.id}`], p.id);
+  for (const h of [0, 6, 13, 19, 23]) assert.ok(PICS[homePicKey(h)], `година ${h}`);
+});
+
+test('ілюстрації: список Service Worker і файли в теці збігаються без зайвих', () => {
+  const sw = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
+  const inSw = [...sw.matchAll(/'\.\/(pic-[^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(inSw, [...PIC_FILES].sort(), 'список PICS у sw.js не збігається з pics.js');
+  const onDisk = readdirSync(new URL('.', import.meta.url)).filter((f) => /^pic-.*\.webp$/.test(f)).sort();
+  assert.deepEqual(onDisk, [...PIC_FILES].sort(), 'у теці є невикористані або відсутні картинки');
+  const LAT = /[\u005A\u007A]/;
+  for (const p of Object.values(PICS)) for (const t of [p.src, p.alt, p.cap || '', p.note || '']) assert.ok(!LAT.test(t), t);
 });

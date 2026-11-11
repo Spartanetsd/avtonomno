@@ -7,11 +7,11 @@ import { MYTHS } from './solutions.js';
 import { reserveInsight } from './engine.js';
 import { RULES, SYMPTOMS, EMERGENCY, RISK_LEVELS, stateAlerts } from './safety.js';
 import { fmt } from './calc.js';
-import { app, on, esc, icon, illo, note, seg, chip, pageHead, plural, tempText, peopleList } from './ui.js';
+import { app, on, esc, icon, illo, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -84,6 +84,7 @@ function stateView() {
     title: 'Мій стан сьогодні',
     tab: 'res',
     html: `${pageHead('Мій стан сьогодні', '#/', 'Зберігається одразу й лише на цьому пристрої')}
+    ${pic('state')}
     <section class="card form">
       <h2>Що є зараз</h2>
       ${tri('power', 'Електроенергія')}
@@ -211,6 +212,7 @@ function setupView(n) {
     tab: 'res',
     html: `${pageHead(q, step === 1 ? '#/' : `#/setup/${step - 1}`, `Крок ${step} з ${SETUP_STEPS}`)}
     <div class="progress" role="progressbar" aria-valuemin="1" aria-valuemax="${SETUP_STEPS}" aria-valuenow="${step}" aria-label="Прогрес налаштування"><i style="width:${(step / SETUP_STEPS) * 100}%"></i></div>
+    ${step === 1 ? pic('setup-start') : ''}
     <section class="card form">${body}</section>
     <div class="row-btns sticky-actions">
       ${step < SETUP_STEPS ? `<a class="btn primary" href="#/setup/${step + 1}">Далі</a>` : `<button class="btn primary" type="button" data-act="su-finish">Готово</button>`}
@@ -245,14 +247,28 @@ on({
   'su-budget': (el) => { store.update((d) => { d.profile.budget = Number(el.dataset.v); }); app.render(); },
   'su-finish': () => {
     store.update((d) => { d.profile.setupDone = true; });
-    app.toast('Готово. Підбір враховує вашу ситуацію.');
-    app.go('#/');
+    app.go('#/setup/done');
   },
   'su-skip': () => {
     store.update((d) => { d.profile.setupDismissed = true; });
     app.go('#/');
   },
 });
+
+/** Екран після налаштування: похвала й наступний крок. @returns {View} */
+function setupDoneView() {
+  return {
+    title: 'Налаштування завершено',
+    tab: 'res',
+    html: `${pageHead('Готово!', '#/', 'Підбір рішень тепер враховує вашу ситуацію')}
+    ${pic('setup-done', { eager: true })}
+    <div class="row-btns">
+      <a class="btn primary" href="#/plan">Знайти рішення</a>
+      <a class="btn ghost" href="#/res">Мої ресурси</a>
+    </div>
+    <p class="hint">Відповіді можна змінити будь-коли в розділі «Мої ресурси».</p>`,
+  };
+}
 
 /* ───────────── Мої ресурси ───────────── */
 
@@ -267,6 +283,7 @@ function resourcesView() {
     title: 'Мої ресурси',
     tab: 'res',
     html: `${pageHead('Мої ресурси', '', 'Ситуація, стан і запаси — лише на цьому пристрої')}
+    ${pic('reserve')}
     <section class="card">
       <div class="card-h"><h2>Моя ситуація</h2><a class="linkbtn" href="#/setup/1">Змінити</a></div>
       <dl class="kv">
@@ -347,7 +364,7 @@ function insightHtml() {
 function reserveListHtml() {
   const items = store.get().reserve;
   if (!items.length) {
-    return `<div class="empty small">${illo('il-box')}<p>Резерв порожній. Додайте те, що є вдома, — і застосунок покаже, що можна зробити просто зараз.</p></div>`;
+    return `<div class="empty small">${picImg('empty-reserve', 'pic-e', 'il-box')}<p>Резерв порожній. Додайте те, що є вдома, — і застосунок покаже, що можна зробити просто зараз.</p></div>`;
   }
   return RESERVE_CATS.map((c) => {
     const list = items.filter((i) => i.cat === c.key);
@@ -550,6 +567,7 @@ function safetyView() {
       <h2>Екстрені номери</h2>
       <ul class="calls">${EMERGENCY.map((e) => `<li><a class="call" href="tel:${e.num}">${icon('i-phone')}<b>${e.num}</b><span>${esc(e.label)}</span></a></li>`).join('')}</ul>
     </section>
+    ${pic('safety')}
     <h2 class="h2">Ознаки небезпеки</h2>
     ${SYMPTOMS.map((sy) => `<details class="card fold sign ${sy.level}"><summary>${icon(sy.level === 'danger' ? 'i-alert' : 'i-warn')}<span>${esc(sy.title)}</span></summary>
       <h3>Ознаки</h3><ul>${sy.signs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
@@ -584,6 +602,7 @@ function offlineDetails(sw) {
     <ul class="kvs">
       <li>Інтернет зараз: <b>${navigator.onLine ? 'є' : 'немає'}</b></li>
       ${sw.total ? `<li>Файлів у кеші: <b>${sw.cached} з ${sw.total}</b></li>` : ''}
+      ${sw.picsTotal ? `<li>Ілюстрацій у кеші: <b>${sw.picsCached} з ${sw.picsTotal}</b></li>` : ''}
       ${sw.version ? `<li>Версія кешу: <b>${esc(sw.version)}</b></li>` : ''}
       <li>Локальне сховище: <b>${store.isPersistent() ? 'працює' : 'недоступне'}</b></li>
     </ul>
@@ -600,7 +619,7 @@ function aboutView(sw) {
       <h2>Що це</h2>
       <p>Офлайн-помічник для життя без світла, газу, опалення, води чи зв’язку. Обираєте проблему — і за кілька секунд бачите практичне, обґрунтоване й безпечне рішення з тим, що маєте.</p>
     </section>
-    <section class="card"><h2>Офлайн-режим</h2><div id="about-offline">${offlineDetails(sw)}</div>
+    <section class="card"><h2>Офлайн-режим</h2>${pic('offline')}<div id="about-offline">${offlineDetails(sw)}</div>
       <p class="hint">Для першого отримання застосунку потрібен інтернет. Після першого відкриття всі файли зберігаються на пристрої, і застосунок працює без мережі: рішення, калькулятори, резерв і нотатки.</p>
       <button class="btn ghost" type="button" data-act="recheck">${icon('i-sync')}<span>Перевірити ще раз</span></button>
     </section>
@@ -639,6 +658,7 @@ export const screens = {
   resources: resourcesView,
   state: stateView,
   setup: setupView,
+  setupDone: setupDoneView,
   safety: safetyView,
   about: aboutView,
   offlineDetails,

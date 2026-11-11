@@ -8,7 +8,8 @@ import { buildContext, recommend, quickActions, planFromState, searchLibrary, fe
 import { stateAlerts, SYMPTOMS } from './safety.js';
 import { PHYSICS_BY_ID } from './physics.js';
 import { fmt } from './calc.js';
-import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList } from './ui.js';
+import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList, pic, picImg } from './ui.js';
+import { homePicKey } from './pics.js';
 import { screens } from './screens.js';
 import { calcScreens } from './calcui.js';
 
@@ -37,6 +38,7 @@ const ROUTES = [
   [/^\/safety$/, () => screens.safety()],
   [/^\/res$/, () => screens.resources()],
   [/^\/state$/, () => screens.state()],
+  [/^\/setup\/done$/, () => screens.setupDone()],
   [/^\/setup(?:\/(\d))?$/, (m) => screens.setup(Number(m[1] || 1))],
   [/^\/about$/, () => screens.about(swInfo)],
   [/^\/calc$/, () => calcScreens.list()],
@@ -115,22 +117,23 @@ function viewHome() {
         <div><h2>Налаштуйте за хвилину</h2><p class="muted">Де ви, що є під рукою, які обмеження — і підбір стане точнішим. Можна пропустити.</p></div>
         <div class="row-btns"><a class="btn primary" href="#/setup/1">Налаштувати</a><button class="btn ghost" type="button" data-act="setup-dismiss">Пізніше</button></div>
       </section>` : '';
-  const needs = NEED_ORDER.map((n) => `<a class="need need-${n}" href="#/need/${n}">${illo(NEEDS[n].illo)}<span class="need-t">${esc(NEEDS[n].label)}</span><span class="need-s">${esc(NEEDS[n].sub)}</span></a>`).join('');
+  const needs = NEED_ORDER.map((n) => `<a class="need need-${n}" href="#/need/${n}">${picImg(`ico-${n}`, 'ico', NEEDS[n].illo)}<span class="need-t">${esc(NEEDS[n].label)}</span><span class="need-s">${esc(NEEDS[n].sub)}</span></a>`).join('');
   return {
     title: '',
     tab: 'home',
     html: `
+    ${pic(homePicKey(hour), { cls: 'hero', eager: true })}
     <section class="hello">
       <p class="greet">${greet}</p>
       <h1 tabindex="-1">Знайдемо рішення.</h1>
       <p class="sub">Що потрібно вирішити зараз?</p>
     </section>
     ${setup}
+    <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
     <div class="season-row">
       ${seg('season', SEASON_ORDER.map((s) => ({ v: s, label: SEASONS[s].label, icon: SEASONS[s].icon })), c.season, 'Сезон')}
       <p class="hint">${auto ? 'Сезон підібрано за датою. Змініть, якщо потрібно.' : '<button class="linkbtn" type="button" data-act="season-auto">Повернути вибір за датою</button>'}</p>
     </div>
-    <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
     ${stateCard(d, c)}
     <div class="rows">
       <a class="row" href="#/season/${c.season}">${icon(SEASONS[c.season].icon)}<span>Сценарій сезону: ${esc(SEASONS[c.season].label)}</span>${icon('i-chev', 'end')}</a>
@@ -195,7 +198,7 @@ function viewNeed(need, q) {
   const r = recommend(need, c, mode, 3);
   const alertsHtml = alerts.map((a) => note(a.level, a.title, a.text, a.action && BY_ID.get(a.action) ? `<a class="note-a" href="#/s/${a.action}">${esc(BY_ID.get(a.action)?.title || '')}${icon('i-chev')}</a>` : '')).join('');
   const recs = r.none
-    ? note('caution', 'Безпечного рішення не знайдено', r.noneText)
+    ? `<div class="none-art">${picImg('empty-none', 'pic-e')}</div>${note('caution', 'Безпечного рішення не знайдено', r.noneText)}`
     : r.items.map(recCard).join('');
   const help = r.wouldHelp.length ? `<p class="hint">${icon('i-info')} Більше варіантів, якщо є: ${esc(r.wouldHelp.join('; '))}. <a href="#/res">Оновити резерв</a></p>` : '';
   const signs = signsFor(need, c);
@@ -211,6 +214,7 @@ function viewNeed(need, q) {
       <h2 id="now-h">Зробіть зараз</h2>
       ${acts.length ? `<ol class="now-list">${acts.map((a, i) => `<li><span class="n" aria-hidden="true">${i + 1}</span>${a.id ? `<a href="#/s/${a.id}">${esc(a.text)}</a>` : `<span>${esc(a.text)}</span>`}</li>`).join('')}</ol>` : `<p>${esc(r.noneText)}</p>`}
     </section>
+    ${pic(`need-${need}`)}
     ${seg('mode', MODES, mode, 'Скільки є часу')}
     <h2 class="h2">Найкращі варіанти для вас</h2>
     <div class="recs" aria-live="polite">${recs}</div>
@@ -307,6 +311,7 @@ function viewSolution(id) {
       <div><dt>${icon('i-gauge')}Складність</dt><dd>${dots(s.difficulty)} <span class="sr-only">${s.difficulty} з 5</span></dd></div>
       <div><dt>${icon('i-layers')}Рівень</dt><dd>${esc(LEVELS[s.level].short)} · ${esc(LEVELS[s.level].label)}</dd></div>
     </dl>
+    ${s.id === 'heat-relocate' ? pic('warm-place') : ''}
     <section class="sec"><h2>Очікуваний результат</h2><p>${esc(s.result)}</p></section>
     <section class="sec"><h2>Що потрібно</h2>
       <ul class="mat">${s.materials.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
@@ -379,7 +384,7 @@ function libFilters() {
 
 function libResults() {
   const res = searchLibrary({ q: lib.q, need: lib.need, season: lib.season, level: lib.level, onlyNow: lib.onlyNow }, ctx());
-  if (!res.length) return empty('il-lamp', 'Нічого не знайдено', 'Спробуйте інше слово або приберіть фільтри.');
+  if (!res.length) return empty('empty-search', 'Нічого не знайдено', 'Спробуйте інше слово або приберіть фільтри. Ми поруч.');
   return `<p class="count">Знайдено: ${res.length}</p><div class="list">${res.map((s) => {
     if ('myth' in s) return `<a class="card item myth" href="#/s/${s.id}"><div class="rec-top">${riskBadge('danger')}<span class="badge plain">${esc(NEEDS[s.need].label)}</span></div><h3>${esc(s.title)}</h3><p class="muted">Чому ні — і що робити замість</p></a>`;
     return `<a class="card item" href="#/s/${s.id}"><div class="rec-top">${levelBadge(s.level)}${riskBadge(s.risk)}<span class="badge plain">${esc(NEEDS[s.need].label)}</span></div><h3>${esc(s.title)}</h3><p class="muted">${esc(s.problem)}</p><ul class="meta"><li>${icon('i-clock')}<span>${minutes(s.prepMin)}</span></li><li>${dots(s.difficulty)}</li></ul></a>`;
@@ -410,6 +415,7 @@ function viewSeason(s) {
     title: `${se.label}: сценарій`,
     tab: 'home',
     html: `${pageHead(`${se.label}: сценарій`, '#/', se.intro)}
+    ${pic(`season-${s}`)}
     <section class="card rule">${icon(se.icon)}<p>${esc(se.rule)}</p></section>
     ${c.season !== s ? `<button class="btn ghost wide" type="button" data-act="season" data-v="${s}">Зробити «${esc(se.label)}» поточним сезоном</button>` : ''}
     <h2 class="h2">Головні завдання</h2>
@@ -454,7 +460,7 @@ function viewSaved() {
     ${favs.length ? `<div class="list">${favs.map((s) => s ? `<div class="card item fav">
         <a href="#/s/${s.id}" class="fav-a"><h3>${esc(s.title)}</h3><p class="muted">${esc('myth' in s ? 'Небезпечний міф' : s.result)}</p></a>
         <button class="iconbtn" type="button" data-act="fav" data-v="${s.id}" aria-label="Прибрати зі збереженого">${icon('i-star-f')}</button>
-      </div>` : '').join('')}</div>` : empty('il-thermos', 'Поки порожньо', 'Відкрийте будь-яке рішення й натисніть «Зберегти» — воно з’явиться тут і буде доступне офлайн.', '<a class="btn primary" href="#/all">До всіх рішень</a>')}`,
+      </div>` : '').join('')}</div>` : empty('empty-saved', 'Поки порожньо', 'Відкрийте будь-яке рішення й натисніть «Зберегти» — воно з’явиться тут і буде доступне офлайн.', '<a class="btn primary" href="#/all">До всіх рішень</a>')}`,
   };
 }
 
@@ -531,8 +537,8 @@ function hideToast() {
 
 /* ───────────── Офлайн-режим (реальний стан Service Worker) ───────────── */
 
-/** @type {{status:'checking'|'ready'|'partial'|'unsupported'|'error', cached:number, total:number, version:string, reg: ServiceWorkerRegistration|null, install: any}} */
-const swInfo = { status: 'checking', cached: 0, total: 0, version: '', reg: null, install: null };
+/** @type {{status:'checking'|'ready'|'partial'|'unsupported'|'error', cached:number, total:number, picsCached:number, picsTotal:number, version:string, reg: ServiceWorkerRegistration|null, install: any}} */
+const swInfo = { status: 'checking', cached: 0, total: 0, picsCached: 0, picsTotal: 0, version: '', reg: null, install: null };
 let reloading = false;
 
 function offlineBadge() {
@@ -580,6 +586,8 @@ async function initSW() {
   }
 }
 
+let picsTries = 0;
+
 function checkOffline() {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.ready.then((reg) => {
@@ -592,10 +600,18 @@ function checkOffline() {
       const d = e.data || {};
       swInfo.cached = d.cached || 0;
       swInfo.total = d.total || 0;
+      swInfo.picsCached = d.picsCached || 0;
+      swInfo.picsTotal = d.picsTotal || 0;
       swInfo.version = d.version || '';
       swInfo.status = d.ready ? 'ready' : 'partial';
       refreshBadge();
-      if (!d.ready) setTimeout(checkOffline, 2500);
+      if (!d.ready) { setTimeout(checkOffline, 2500); return; }
+      // Застосунок уже працює офлайн; ілюстрації дозберігаються у фоні, коли є мережа
+      if (d.picsTotal && d.picsCached < d.picsTotal && navigator.onLine && picsTries < 12) {
+        if (picsTries === 0) target.postMessage({ type: 'CACHE_PICS' });
+        picsTries++;
+        setTimeout(checkOffline, 3000);
+      }
     };
     target.postMessage({ type: 'STATUS' }, [ch.port2]);
   });
@@ -609,7 +625,18 @@ function applyUpdate() {
   w.postMessage({ type: 'SKIP_WAITING' });
 }
 
+// Картинка недоступна (офлайн до першого кешування тощо): ховаємо ілюстрацію або повертаємо SVG
+document.addEventListener('error', (e) => {
+  const t = e.target;
+  if (!(t instanceof HTMLImageElement)) return;
+  const fig = t.closest('figure.pic');
+  if (fig instanceof HTMLElement) { fig.hidden = true; return; }
+  if (t.dataset.illo) t.outerHTML = illo(t.dataset.illo);
+  else t.hidden = true;
+}, true);
+
 window.addEventListener('online', refreshBadge);
+window.addEventListener('online', () => { picsTries = 0; checkOffline(); });
 window.addEventListener('offline', refreshBadge);
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); swInfo.install = e; /** @type {any} */ (window).__avInstall = e; refreshBadge(); });
 window.addEventListener('appinstalled', () => { swInfo.install = null; refreshBadge(); });

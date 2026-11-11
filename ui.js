@@ -3,6 +3,7 @@
 
 import { LEVELS, SOURCES, costBand } from './data.js';
 import { RISK_LEVELS } from './safety.js';
+import { PICS } from './pics.js';
 
 /** Глобальні дії застосунку (заповнює app.js). */
 export const app = {
@@ -134,7 +135,34 @@ export function chip(act, v, label, pressed) {
  * @param {string} il @param {string} title @param {string} text @param {string} [btn]
  */
 export function empty(il, title, text, btn = '') {
-  return `<div class="empty">${illo(il)}<h2>${esc(title)}</h2><p>${esc(text)}</p>${btn}</div>`;
+  const art = PICS[il] ? picImg(il, 'pic-e', 'il-lamp') : illo(il);
+  return `<div class="empty">${art}<h2>${esc(title)}</h2><p>${esc(text)}</p>${btn}</div>`;
+}
+
+/**
+ * Ілюстрація з підписом-підтримкою (figure). Якщо файл не завантажився — figure ховається (див. app.js).
+ * @param {string} key ключ із PICS
+ * @param {{ cls?: string, eager?: boolean, cap?: boolean, note?: boolean }} [o]
+ */
+export function pic(key, o = {}) {
+  const p = PICS[key];
+  if (!p) return '';
+  const cap = o.cap !== false && p.cap ? `<span class="praise">${esc(p.cap)}</span>` : '';
+  const pn = o.note && p.note ? `<span class="pnote">${esc(p.note)}</span>` : '';
+  const cls = ['pic', p.shape || '', o.cls || ''].filter(Boolean).join(' ');
+  const load = o.eager ? 'fetchpriority="high"' : 'loading="lazy"';
+  return `<figure class="${cls}"><img src="${p.src}" width="${p.w}" height="${p.h}" alt="${esc(p.alt)}" decoding="async" ${load}>${cap || pn ? `<figcaption>${cap}${pn}</figcaption>` : ''}</figure>`;
+}
+
+/**
+ * Картинка без підпису: іконка картки чи малюнок порожнього стану.
+ * @param {string} key @param {string} [cls] @param {string} [fallback] id SVG-ілюстрації на випадок, якщо файл недоступний
+ */
+export function picImg(key, cls = '', fallback = '') {
+  const p = PICS[key];
+  if (!p) return fallback ? illo(fallback) : '';
+  const c = [cls, p.shape || ''].filter(Boolean).join(' ');
+  return `<img class="${c}" src="${p.src}" width="${p.w}" height="${p.h}" alt="${esc(p.alt)}" decoding="async" loading="lazy"${fallback ? ` data-illo="${fallback}"` : ''}>`;
 }
 
 /** @param {string} title @param {string} [back] @param {string} [sub] */
