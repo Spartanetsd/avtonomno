@@ -8,19 +8,23 @@ import { RESERVE_CATALOG, RESERVE_CATS, EQUIP, LIMITS, PLACES, DURATIONS, SEASON
 /** @typedef {import('./types').ReserveItem} ReserveItem */
 
 export const STORE_KEY = 'avtonomno.data';
-export const SCHEMA = 1;
+export const SCHEMA = 3;
 
 /** @returns {AppData} */
 export function defaults() {
   return {
     v: SCHEMA,
-    profile: { place: null, equip: [], limits: [], duration: 'd3', budget: 0, setupDone: false, setupDismissed: false },
-    state: { power: null, gas: null, tap: null, waterL: null, batteryPct: null, roomC: null, adults: 1, kids: 0, elderly: 0, pets: 0, petKg: 0, updated: null },
+    profile: { place: null, equip: [], limits: [], duration: 'd3', budget: 0, setupDone: false, setupDismissed: false, stationW: null, kettleW: null },
+    state: { power: null, gas: null, tap: null, outsideSafe: null, waterL: null, batteryPct: null, roomC: null, adults: 1, kids: 0, elderly: 0, pets: 0, petKg: 0, updated: null },
     reserve: [],
     favs: [],
     notes: '',
     calc: {},
     settings: { theme: 'auto', contrast: false, motion: false, season: null },
+    bag: [],
+    bagAt: null,
+    prep: [],
+    shelter: { since: null, after: null, count: 0, minutes: 0, last: null },
   };
 }
 
@@ -38,6 +42,20 @@ function numIn(v, min, max, dflt) {
   const n = Number(v);
   if (!Number.isFinite(n)) return dflt;
   return Math.min(max, Math.max(min, n));
+}
+/**
+ * Список коротких рядків-ключів без повторів. Невідомі ключі зберігаються:
+ * так дані з новішої версії не губляться, а підрахунок їх просто не враховує.
+ * @param {unknown} v @param {number} max
+ */
+function keyList(v, max) {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.filter((k) => typeof k === 'string' && /^[\w-]{1,40}$/.test(k)))].slice(0, max);
+}
+/** Позначка часу в мс (2000–2200 рр.) або null. @param {unknown} v */
+function ms(v) {
+  const n = Number(v);
+  return v != null && v !== '' && Number.isFinite(n) && n > 946684800000 && n < 7258118400000 ? Math.round(n) : null;
 }
 /** @param {unknown} v */
 function triBool(v) {
@@ -83,11 +101,14 @@ export function cleanData(raw) {
   d.profile.budget = numIn(p.budget, 0, 1000000, 0) ?? 0;
   d.profile.setupDone = p.setupDone === true;
   d.profile.setupDismissed = p.setupDismissed === true;
+  d.profile.stationW = numIn(p.stationW, 1, 20000, null);
+  d.profile.kettleW = numIn(p.kettleW, 1, 10000, null);
 
   const s = raw.state || {};
   d.state.power = triBool(s.power);
   d.state.gas = triBool(s.gas);
   d.state.tap = triBool(s.tap);
+  d.state.outsideSafe = triBool(s.outsideSafe);
   d.state.waterL = numIn(s.waterL, 0, 100000, null);
   d.state.batteryPct = numIn(s.batteryPct, 0, 100, null);
   d.state.roomC = numIn(s.roomC, -40, 60, null);
@@ -101,13 +122,26 @@ export function cleanData(raw) {
   d.reserve = Array.isArray(raw.reserve) ? raw.reserve.map(cleanItem).filter(Boolean).slice(0, 500) : [];
   d.favs = Array.isArray(raw.favs) ? [...new Set(raw.favs.filter((x) => typeof x === 'string').map((x) => x.slice(0, 40)))].slice(0, 200) : [];
   d.notes = str(raw.notes, 4000);
-  d.calc = raw.calc && typeof raw.calc === 'object' ? JSON.parse(JSON.stringify(raw.calc)) : {};
+  try {
+    const c = raw.calc && typeof raw.calc === 'object' && !Array.isArray(raw.calc) ? JSON.stringify(raw.calc) : '{}';
+    d.calc = c.length <= 100000 ? JSON.parse(c) : {};
+  } catch { d.calc = {}; }
 
   const st = raw.settings || {};
-  d.settings.theme = st.theme === 'light' || st.theme === 'dark' ? st.theme : 'auto';
+  d.settings.theme = st.theme === 'light' || st.theme === 'dark' || st.theme === 'black' ? st.theme : 'auto';
   d.settings.contrast = st.contrast === true;
   d.settings.motion = st.motion === true;
   d.settings.season = typeof st.season === 'string' && SEASON_ORDER.includes(st.season) ? st.season : null;
+
+  d.bag = keyList(raw.bag, 200);
+  d.bagAt = ms(raw.bagAt);
+  d.prep = keyList(raw.prep, 200);
+  const sh = raw.shelter || {};
+  d.shelter.since = ms(sh.since);
+  d.shelter.after = d.shelter.since != null ? ms(sh.after) : null;
+  d.shelter.count = Math.round(numIn(sh.count, 0, 1000000, 0) ?? 0);
+  d.shelter.minutes = Math.round(numIn(sh.minutes, 0, 100000000, 0) ?? 0);
+  d.shelter.last = ms(sh.last);
   return d;
 }
 
@@ -118,7 +152,10 @@ export function cleanData(raw) {
 export function migrate(raw) {
   if (!raw || typeof raw !== 'object') return raw;
   const v = Number(raw.v) || 1;
-  // v1 — поточна. Майбутні зміни додаються тут кроками: if (v < 2) { ... }
+  // v1 → v2: додано тривожну валізку, підготовку укриття й режим «Я в укритті».
+  // Нові поля заповнює cleanData типовими значеннями, старі дані не змінюються.
+  // v2 → v3: безпечний вихід, явний нагрівач і повна резервна копія.
+  // Відсутні поля отримають консервативні значення у cleanData().
   return { ...raw, v: Math.max(v, SCHEMA) };
 }
 
@@ -224,6 +261,13 @@ export function exportData(d) {
     state: d.state,
     favs: d.favs,
     notes: d.notes,
+    bag: d.bag,
+    bagAt: d.bagAt,
+    prep: d.prep,
+    settings: d.settings,
+    calc: d.calc,
+    // Історія зберігається; активна тривога навмисно НЕ відновлюється на іншому пристрої.
+    shelter: { ...d.shelter, since: null, after: null },
   };
 }
 
@@ -234,6 +278,7 @@ export function exportData(d) {
  * @returns {{ok:true, data:AppData, counts:{reserve:number, favs:number}} | {ok:false, error:string}}
  */
 export function importData(text, current) {
+  if (text.length > 2 * 1024 * 1024) return { ok: false, error: 'Файл завеликий (понад 2 МБ).' };
   let raw;
   try {
     raw = JSON.parse(text);
@@ -253,6 +298,12 @@ export function importData(text, current) {
     state: raw.state ? { ...current.state, ...raw.state } : current.state,
     favs: Array.isArray(raw.favs) ? raw.favs : current.favs,
     notes: typeof raw.notes === 'string' ? raw.notes : current.notes,
+    bag: Array.isArray(raw.bag) ? raw.bag : current.bag,
+    bagAt: raw.bagAt != null ? raw.bagAt : current.bagAt,
+    prep: Array.isArray(raw.prep) ? raw.prep : current.prep,
+    settings: raw.settings && typeof raw.settings === 'object' ? { ...current.settings, ...raw.settings } : current.settings,
+    calc: raw.calc && typeof raw.calc === 'object' && !Array.isArray(raw.calc) ? raw.calc : current.calc,
+    shelter: raw.shelter && typeof raw.shelter === 'object' ? { ...current.shelter, ...raw.shelter, since: null, after: null } : current.shelter,
   });
   return { ok: true, data: next, counts: { reserve: next.reserve.length, favs: next.favs.length } };
 }

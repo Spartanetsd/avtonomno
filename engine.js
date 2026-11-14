@@ -4,7 +4,7 @@
 // порівняння (витрати, складність, ефект) → топ-3 з поясненням «чому».
 
 import { SOLUTIONS, MYTHS, BY_ID } from './solutions.js';
-import { KEY_LABELS, COMMON_KEYS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
+import { KEY_LABELS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
 import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 
 /** @typedef {import('./types').Ctx} Ctx */
@@ -15,12 +15,12 @@ import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 /** @typedef {import('./types').Rec} Rec */
 /** @typedef {import('./types').Blocked} Blocked */
 
-const COMMON = new Set(COMMON_KEYS);
 const COND = new Set(CONDITION_KEYS);
 
 /**
  * Будує контекст із профілю, стану й резерву.
- * @param {{profile: import('./types').Profile, state: import('./types').DayState, reserve: import('./types').ReserveItem[], season?: import('./types').Season | null, now?: Date}} d
+ * alarm — режим «Я в укритті»: надвір не можна, а температура вдома вже не про вас.
+ * @param {{profile: import('./types').Profile, state: import('./types').DayState, reserve: import('./types').ReserveItem[], season?: import('./types').Season | null, now?: Date, alarm?: boolean}} d
  * @returns {Ctx}
  */
 export function buildContext(d) {
@@ -39,10 +39,16 @@ export function buildContext(d) {
       unavailable.add(it.key);
     }
   }
-  for (const k of unavailable) if (!(d.reserve || []).some((it) => it.key === k && it.ok && it.qty > 0)) equip.delete(k);
+  for (const k of unavailable) {
+    if ((d.reserve || []).some((it) => it.key === k && it.ok && it.qty > 0)) unavailable.delete(k);
+    else equip.delete(k);
+  }
 
   const limits = new Set(profile.limits || []);
-  const place = profile.place || 'apartment';
+  const outsideSafe = state.outsideSafe === true ? true : state.outsideSafe === false ? false : null;
+  const alarm = d.alarm === true;
+  if (alarm) limits.add('noOutside');
+  const place = alarm ? 'shelter' : profile.place || 'apartment';
   const adults = clampInt(state.adults, 0, 50, 1);
   const kids = clampInt(state.kids, 0, 50, 0);
   const elderly = clampInt(state.elderly, 0, 50, 0);
@@ -52,7 +58,18 @@ export function buildContext(d) {
   const tap = state.tap === true;
   const burnerAllowed = !limits.has('noFlame') && place !== 'shelter' && place !== 'car';
   const stoveOk = equip.has('stove') && place === 'house' && !limits.has('noFlame');
-  const heatSource = power || gas || equip.has('station') || (equip.has('burner') && burnerAllowed) || stoveOk;
+  // Джерело електрики саме по собі НЕ нагріває воду.
+  // Для 230 В від станції потрібні підтверджений AC-вихід і відомі номінальні потужності.
+  const kettleW = Number(profile.kettleW) || 0;
+  const stationW = Number(profile.stationW) || 0;
+  const fromGrid = power && equip.has('electricKettle');
+  const fromGas = gas && equip.has('gasCooker');
+  const fromStation = equip.has('station') && equip.has('stationAC') && equip.has('electricKettle')
+    && kettleW > 0 && stationW > 0 && kettleW <= stationW;
+  // Пальник лише за підтвердженого безпечного виходу надвір та наявності картриджів.
+  const fromBurner = equip.has('burner') && equip.has('cartridges') && burnerAllowed && outsideSafe === true;
+  const electricHeatSource = fromGrid || fromStation;
+  const heatSource = electricHeatSource || fromGas || fromBurner || stoveOk;
   const waterL = numOrNull(state.waterL) ?? (hasReserveWater ? reserveWater : null);
 
   return {
@@ -67,19 +84,27 @@ export function buildContext(d) {
     vulnerable: limits.has('vulnerable') || kids > 0 || elderly > 0,
     pets: clampInt(state.pets, 0, 50, 0),
     petKg: Math.max(0, Number(state.petKg) || 0),
-    power, gas, tap,
+    power, gas, tap, outsideSafe,
     waterL,
     batteryPct: numOrNull(state.batteryPct),
-    roomC: numOrNull(state.roomC),
-    heatSource,
+    roomC: alarm ? null : numOrNull(state.roomC),
+    heatSource, electricHeatSource,
     burnerAllowed,
+    alarm,
   };
 }
 
-/**
- * Чи доступний ресурс/умова.
- * @param {Ctx} ctx
- * @param {string} k
+/** Три стани конкретного предмета: підтверджено / недоступно / невідомо.
+ * @param {Ctx} ctx @param {string} k
+ * @returns {'available'|'unavailable'|'unknown'}
+ */
+export function resourceStatus(ctx, k) {
+  if (ctx.unavailable.has(k)) return 'unavailable';
+  return ctx.equip.has(k) ? 'available' : 'unknown';
+}
+
+/** Чи доступний ресурс/умова. За замовчуванням невідоме не означає «є».
+ * @param {Ctx} ctx @param {string} k
  */
 export function has(ctx, k) {
   switch (k) {
@@ -87,9 +112,9 @@ export function has(ctx, k) {
     case 'gas': return ctx.gas;
     case 'tap': return ctx.tap;
     case 'heatSource': return ctx.heatSource;
+    case 'electricHeatSource': return ctx.electricHeatSource;
     default:
-      if (COMMON.has(k)) return !ctx.unavailable.has(k);
-      return ctx.equip.has(k);
+      return resourceStatus(ctx, k) === 'available';
   }
 }
 
@@ -111,7 +136,7 @@ export function safetyGate(sol, ctx) {
   if (sol.uses.combustion && ctx.place === 'shelter' && rule !== 'ok') return { ok: false, why: 'Горіння в укритті чи підвалі — ризик отруєння чадним газом', level: 'danger' };
   if (sol.uses.flame && ctx.limits.has('noFlame')) return { ok: false, why: 'Полум’я заборонене вашими обмеженнями', level: 'danger' };
   const out = sol.uses.outside === true || (sol.uses.outside === 'unlessCar' && ctx.place !== 'car');
-  if (out && ctx.limits.has('noOutside')) return { ok: false, why: 'Потрібно виходити надвір, а зараз це небезпечно', level: 'caution' };
+  if (out && (ctx.limits.has('noOutside') || ctx.outsideSafe !== true)) return { ok: false, why: ctx.outsideSafe === null ? 'Безпеку виходу надвір не підтверджено: перевірте «Мій стан сьогодні»' : 'Потрібно виходити надвір, а зараз це небезпечно', level: 'caution' };
   return { ok: true, level: rule === 'caution' ? 'caution' : sol.risk };
 }
 
@@ -125,13 +150,13 @@ export function feasibility(sol, ctx) {
   /** @type {string[]} */ const conditionMissing = [];
   /** @type {string[]} */ const owned = [];
   for (const k of sol.needs) {
-    if (has(ctx, k)) { if (!COND.has(k) && !COMMON.has(k)) owned.push(k); }
+    if (has(ctx, k)) { if (!COND.has(k)) owned.push(k); }
     else if (COND.has(k)) conditionMissing.push(k);
     else missing.push(k);
   }
   for (const g of sol.needsAny || []) {
     const hit = g.find((k) => has(ctx, k));
-    if (hit) { if (!COND.has(hit) && !COMMON.has(hit)) owned.push(hit); continue; }
+    if (hit) { if (!COND.has(hit)) owned.push(hit); continue; }
     const buyable = g.filter((k) => !COND.has(k));
     if (buyable.length) missing.push(buyable.join('|'));
     else conditionMissing.push(g.join('|'));
@@ -183,6 +208,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   }
   if (sol.need === 'energy' && ctx.power && (sol.id === 'energy-budget' || sol.id === 'prep-power')) { s += 8; reasons.push('Світло є — саме час усе зарядити'); }
   if (ctx.place === 'car' && sol.id === 'energy-car') { s += 12; reasons.push('Ви в автомобілі'); }
+  if (ctx.place === 'shelter' && sol.tags.includes('укриття')) { s += ctx.alarm ? 24 : 14; reasons.push('Саме для укриття'); }
   if (sol.need === 'cool' && t != null && t >= 30 && (sol.id === 'cool-alert' || sol.id === 'cool-body')) s += 10;
 
   // Сезон
@@ -207,7 +233,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   if (f.owned.length) { s += 10; reasons.push(`Використовує те, що є: ${uniq(f.owned).map(keyLabel).join(', ')}`); }
   if (f.costNow === 0) { s += 6; if (!f.owned.length) reasons.push('Без витрат'); }
   else s -= Math.min(14, Math.log10(f.costNow) * 3);
-  if (!f.ok && f.missing.length) warnings.push(`Потрібно придбати: ${f.missing.map(groupLabel).join('; ')} (${costBand(sol.cost)})${ctx.limits.has('noOutside') ? ', коли це буде безпечно' : ''}`);
+  if (!f.ok && f.missing.length) warnings.push(`Потрібно підтвердити наявність або придбати: ${f.missing.map(groupLabel).join('; ')} (${costBand(sol.cost)})${ctx.limits.has('noOutside') ? ', коли це буде безпечно' : ''}`);
 
   // Складність
   s -= (sol.difficulty - 1) * 3;
@@ -237,7 +263,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   }
   if (ctx.vulnerable && sol.vulnerableRisk) { s -= 6; warnings.push(sol.vulnerableRisk); }
   const needsHeat = (sol.needsAny || []).some((g) => g.includes('heatSource'));
-  if (needsHeat && !ctx.power && !ctx.gas && !ctx.equip.has('station') && ctx.equip.has('burner') && ctx.burnerAllowed) {
+  if (needsHeat && !ctx.power && !ctx.gas && ctx.equip.has('burner') && ctx.equip.has('cartridges') && ctx.outsideSafe === true && ctx.burnerAllowed) {
     s -= 6;
     warnings.push('Ваше джерело тепла — пальник: лише коротко, з провітрюванням і детектором CO');
   }
@@ -331,12 +357,41 @@ export function recommend(need, ctx, mode = '5', limit = 3) {
 }
 
 /**
+ * «Зробіть зараз» у режимі «Я в укритті» для побутових потреб.
+ * Тепло й повітря підбираються звичайним способом — для них є окремі картки укриття.
+ * @type {Partial<Record<Need, {text:string, id:string|null}[]>>}
+ */
+const ALARM_NOW = {
+  food: [
+    { text: 'Їжте те, що не треба готувати: хлібці, горіхи, батончики, консерви', id: 'food-nocook' },
+    { text: 'Дітям — їжа й вода у звичний час: розпорядок заспокоює', id: null },
+    { text: 'Продукти з різким запахом в укриття не беріть', id: null },
+  ],
+  water: [
+    { text: 'Пийте невеликими ковтками; запас із валізки — насамперед на пиття', id: 'water-calc' },
+    { text: 'Воду невідомого походження не пийте без знезараження', id: 'water-chlorine' },
+  ],
+  energy: [
+    { text: 'Один телефон — на зв’язку, решта — в режимі енергозбереження', id: 'energy-phone' },
+    { text: 'Світло — лише від ліхтаря чи лампи, без свічок', id: 'energy-light' },
+    { text: 'Новини — з офіційних каналів і радіо', id: 'energy-comms' },
+  ],
+  hygiene: [
+    { text: 'Руки — антисептиком або вологими серветками', id: 'hyg-hands' },
+    { text: 'Туалет — у відгородженій зоні: відро з пакетом і кришкою', id: 'hyg-toilet' },
+    { text: 'Сміття — у щільно зав’язаний пакет', id: 'hyg-waste' },
+  ],
+};
+
+/**
  * Три першочергові дії «Зробіть зараз».
  * @param {Need} need
  * @param {Ctx} ctx
  * @returns {{text:string, id:string|null}[]}
  */
 export function quickActions(need, ctx) {
+  // В укритті побутові поради «як удома» (холодильник, краник) недоречні — свої короткі дії
+  if (ctx.alarm && ALARM_NOW[need]) return ALARM_NOW[need].slice(0, 3);
   /** @type {{text:string, id:string|null}[]} */
   const acts = [];
   const push = (/** @type {string} */ text, /** @type {string|null} */ id) => {
@@ -432,12 +487,32 @@ export function norm(s) {
 }
 
 /**
+ * Синоніми й розмовні слова: [частина слова в запиті, що ще шукати].
+ * «Повербанк» знайде павербанк, «підвал» — укриття, «свічка» — безпечні ліхтарі.
+ */
+const SYN = [
+  ['повербанк', 'павербанк'], ['павербанк', 'повербанк'],
+  ['підвал', 'укритт'], ['укритт', 'підвал'], ['бомбосховищ', 'укритт'], ['сховищ', 'укритт'],
+  ['буржуйк', 'піч'], ['свічк', 'ліхтар'], ['свічк', 'лампа'],
+  ['генератор', 'станці'], ['холодн', 'тепл'], ['мерзн', 'тепл'], ['замерз', 'тепл'],
+  ['спек', 'охолод'], ['жар', 'охолод'], ['душн', 'задух'], ['туалет', 'відро'],
+  ['світл', 'ліхтар'], ['ліхтар', 'світл'], ['інтернет', 'звяз'], ['мобільн', 'телефон'],
+];
+
+/** Слово запиту та його синоніми. @param {string} w */
+export function wordAlts(w) {
+  const out = [w];
+  for (const [k, v] of SYN) if (w.includes(k) && !out.includes(v)) out.push(v);
+  return out;
+}
+
+/**
  * @param {{q?:string, need?:string|null, season?:string|null, level?:number|null, onlyNow?:boolean, myths?:boolean}} f
  * @param {Ctx} ctx
  */
 export function searchLibrary(f, ctx) {
   const q = norm(f.q || '');
-  const words = q ? q.split(' ').filter(Boolean) : [];
+  const words = q ? q.split(' ').filter(Boolean).map(wordAlts) : [];
   /** @type {(Solution|Myth)[]} */
   const pool = f.myths === false ? [...SOLUTIONS] : [...SOLUTIONS, ...MYTHS];
   const res = pool.filter((s) => {
@@ -456,7 +531,7 @@ export function searchLibrary(f, ctx) {
     }
     if (!words.length) return true;
     const hay = norm([s.title, 'myth' in s ? s.why : s.problem, ...(s.tags || []), ...('myth' in s ? [] : s.materials)].join(' '));
-    return words.every((w) => hay.includes(w));
+    return words.every((alts) => alts.some((w) => hay.includes(w)));
   });
   return res;
 }

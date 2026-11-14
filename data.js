@@ -41,6 +41,22 @@ export const SOURCES = {
   carWinter: { org: 'Maine Emergency Management Agency', title: 'Якщо ви застрягли в автомобілі взимку', url: 'https://www.maine.gov/mema/hazards/natural-hazards/severe-winter-storms/stranded-with-car' },
   pvgis: { org: 'Єврокомісія, JRC PVGIS', title: 'Інструмент оцінки сонячного випромінювання', url: 'https://joint-research-centre.ec.europa.eu/photovoltaic-geographical-information-system-pvgis/using-pvgis-5/pvgis-5-tools/daily-radiation_en' },
   solarKyiv: { org: 'profileSOLAR (дані NASA POWER)', title: 'Сезонна генерація сонячних панелей, Київ', url: 'https://profilesolar.com/locations/Ukraine/Kyiv/' },
+  monBag: { org: 'МОН України', title: 'Рекомендований вміст тривожної валізи', url: 'https://mon.gov.ua/static-objects/mon/sites/1/civilniy-zahist/2022/03.02/Rekom.vmist.tryvozhnoyi.valizy.03.02.pdf' },
+  kyivShelter: { org: 'ГУ ДСНС у м. Києві / КМДА', title: 'Як поводитися в укриттях цивільного захисту: правила', url: 'https://kyivcity.gov.ua/news/yak_povoditisya_v_ukrittyakh_tsivilnogo_zakhistu_kiyeva_pravila_povedinki/' },
+  podilShelter: { org: 'Подільська РДА м. Києва', title: 'Правила поведінки в укритті (пам’ятка)', url: 'https://minio.kyivcity.gov.ua/kyivcity/sites/15/2025/21072025/%20%D0%BF%D0%BE%D0%B2%D0%B5%D0%B4%D1%96%D0%BA%D0%B8%20%D0%B2%20%D1%83%D0%BA%D1%80%D0%B8%D1%82%D1%82%D1%96%20-%20%D0%9F%D0%BE%D0%B4.%20%D0%A0%D0%94%D0%90.pdf' },
+  bdpuShelter: { org: 'БДПУ (за рекомендаціями ДСНС)', title: 'Що робити, коли чутно сигнал «Слідувати в укриття»', url: 'https://www.bdpu.org.ua/wp-content/uploads/2025/04/shho-robyty-koly-chutno-sygnal-sliduvaty-v-ukryttya-bdpu.pdf' },
+  diiaShelters: { org: 'Мінцифри / Дія', title: 'Мапа укриттів у застосунку «Дія»', url: 'https://diia.gov.ua/news/nova-posluga-v-diyi-znahodte-najblizhche-ukrittya-v-kilka-klikiv' },
+  dsnsShelterReq: { org: 'Суспільне (вимоги ДСНС)', title: 'Що має бути в укритті: виходи, вода, аптечка, каремати', url: 'https://suspilne.media/265616-vognegasnik-voda-wi-fi-aptecka-ta-karemat-u-dsns-pokazali-perelik-vimog-do-skilnih-ukrittiv/' },
+  dsnsAlarm: { org: 'Главком (алгоритм ДСНС)', title: 'Що робити під час повітряної тривоги', url: 'https://glavcom.ua/country/society/shcho-robiti-pid-chas-povitrjanoji-trivohi-alhoritm-dij-931374.html' },
+  dsnsStreet: { org: 'ТСН (інструкція ДСНС)', title: 'Обстріл застав на вулиці: де сховатися', url: 'https://tsn.ua/ato/shcho-robyty-pid-chas-obstrilu-na-vulytsi-instruktsiia-dsns-3179228.html' },
+  mvsCar: { org: 'Вікна (рекомендації МВС)', title: 'Як діяти, якщо обстріл застав за кермом чи в транспорті', url: 'https://vikna.tv/dlia-tebe/bezpeka/yak-diyaty-yakshho-obstril-zastav-za-kermom-rekomendatsiyi-mvs/amp/' },
+  dsnsAfter: { org: 'Вікна (пояснення ДСНС)', title: 'Чому не варто виходити з укриття одразу після відбою', url: 'https://vikna.tv/dlia-tebe/bezpeka/pershi-hvylyny-pislya-vidboyu-najbilsh-nebezpechni/' },
+  dsnsRubble: { org: 'АрміяInform (роз’яснення ДСНС)', title: 'Що робити, якщо ви опинилися під завалом', url: 'https://armyinform.com.ua/2023/01/18/shho-robyty-yakshho-vy-opynylys-pid-zavalom-rozyasnennya-dsns/' },
+  dsnsBlocked: { org: 'УП. Життя (коментар ДСНС)', title: 'Що робити, якщо ви опинилися заблокованими в укритті', url: 'https://life.pravda.com.ua/society/u-dsns-rozpovili-algoritm-diy-u-razi-obvalu-vihodiv-v-ukritti-315726/' },
+  dsnsSilence: { org: 'УП. Життя (поради ДСНС)', title: 'Епіцентр обстрілу й завали: «хвилина тиші»', url: 'https://life.pravda.com.ua/society/shcho-robiti-yakshcho-vi-stali-svidkom-vibuhu-chi-opinilis-pid-zavalami-poradi-dsns-302691/' },
+  rubbleKids: { org: 'МВС, ДСНС і ЮНІСЕФ', title: 'Під завалами разом з дитиною: правила порятунку', url: 'https://www.kmu.gov.ua/news/pravyla-poriatunku-vid-dsns-ta-iunisef-shcho-robyty-iakshcho-vy-opynylysia-pid-zavalamy-razom-z-dytynoiu' },
+  unicefShelter: { org: 'ЮНІСЕФ Україна', title: 'Як батькам підтримати дитину в укритті', url: 'https://www.unicef.org/ukraine/stories/how-to-support-a-child-in-a-shelter' },
+  dpssPets: { org: 'Держпродспоживслужба', title: 'Укриття відкриті і для домашніх тварин', url: 'https://dpss.gov.ua/news/ukryttia-vidkryti-i-dlia-domashnikh-tvaryn-shcho-peredbachaie-zakonodavstvo' },
   mdnPwa: { org: 'MDN', title: 'Прогресивні вебзастосунки (PWA)', url: 'https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/' },
   ghPages: { org: 'GitHub Docs', title: 'GitHub Pages', url: 'https://docs.github.com/en/pages/' },
 };
@@ -108,6 +124,9 @@ export const EQUIP = [
   { key: 'burner', label: 'Сертифікований туристичний пальник' },
   { key: 'stove', label: 'Дров’яна піч із належним димоходом' },
   { key: 'thermos', label: 'Термос' },
+  { key: 'electricKettle', label: 'Електрочайник / електронагрівач 230 В' },
+  { key: 'gasCooker', label: 'Газова плита для приготування їжі' },
+  { key: 'stationAC', label: 'Перевірено: станція має робочий вихід 230 В AC' },
 ];
 
 /** Комунальні послуги — частина «стану сьогодні» */
@@ -152,6 +171,9 @@ export const RESERVE_CATALOG = [
   { key: 'carCharger', label: 'USB-адаптер у гніздо авто 12 В', cat: 'chargers', unit: 'шт', qty: 1 },
   { key: 'solar', label: 'Сонячна панель', cat: 'chargers', unit: 'шт', qty: 1 },
   { key: 'thermos', label: 'Термос', cat: 'thermos', unit: 'шт', qty: 1 },
+  { key: 'storedHotWater', label: 'Готовий окріп у термосі', cat: 'thermos', unit: 'л', qty: 1 },
+  { key: 'electricKettle', label: 'Електрочайник / нагрівач 230 В', cat: 'other', unit: 'шт', qty: 1 },
+  { key: 'gasCooker', label: 'Газова плита', cat: 'other', unit: 'шт', qty: 1 },
   { key: 'cooler', label: 'Термосумка з холодними акумуляторами', cat: 'thermos', unit: 'шт', qty: 1 },
   { key: 'blankets', label: 'Ковдри й пледи', cat: 'warm', unit: 'шт', qty: 4 },
   { key: 'sleepingBag', label: 'Спальник', cat: 'warm', unit: 'шт', qty: 1 },
@@ -182,6 +204,7 @@ export const KEY_LABELS = {
   gas: 'газ',
   tap: 'вода з крана',
   heatSource: 'джерело тепла для окропу',
+  electricHeatSource: 'сумісний електронагрівач із живленням',
   car12: 'автомобіль із розеткою 12 В',
   powerbank: 'павербанк',
   station: 'зарядна станція',
@@ -189,6 +212,10 @@ export const KEY_LABELS = {
   burner: 'сертифікований туристичний пальник',
   stove: 'дров’яна піч із димоходом',
   thermos: 'термос',
+  electricKettle: 'електронагрівач 230 В',
+  storedHotWater: 'готовий окріп у термосі',
+  gasCooker: 'газова плита',
+  stationAC: 'вихід станції 230 В AC',
   battery12: 'акумулятор 12 В із захистом',
   bleach: 'хлорний відбілювач 5–9 %',
   waterTabs: 'таблетки для знезараження',
@@ -210,11 +237,11 @@ export const KEY_LABELS = {
   tent: 'намет',
 };
 
-/** Звичайні побутові речі: вважаємо наявними, якщо в резерві їх не позначено як недоступні */
+/** Поширені побутові речі, але без автоматичного припущення, що вони вже є. */
 export const COMMON_KEYS = ['blankets', 'bucket', 'bags'];
 
 /** Ключі, які не можна «купити»: це умови, а не речі */
-export const CONDITION_KEYS = ['grid', 'gas', 'tap', 'heatSource'];
+export const CONDITION_KEYS = ['grid', 'gas', 'tap', 'heatSource', 'electricHeatSource'];
 
 /**
  * Сезонні сценарії. ids — посилання на рішення.

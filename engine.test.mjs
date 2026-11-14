@@ -88,7 +88,7 @@ test('пальник: заборонений в укритті й автомоб
   assert.equal(safetyGate(burner, ctxOf({ profile: { place: 'car', equip: ['burner'] } })).ok, false);
   assert.equal(safetyGate(burner, ctxOf({ profile: { place: 'apartment', equip: ['burner'], limits: ['noFlame'] } })).ok, false);
   const g = safetyGate(burner, ctxOf({ profile: { place: 'apartment', equip: ['burner'] } }));
-  assert.equal(g.ok, true);
+  assert.equal(g.ok, false, 'без підтвердження безпеки виходу пальник не радимо');
   assert.equal(g.level, 'caution');
 });
 
@@ -96,16 +96,17 @@ test('пальник у квартирі ранжується нижче за б
   const ctx = ctxOf({ profile: { equip: ['burner', 'thermos'], budget: 5000 } });
   const r = recommend('food', ctx, '30', 10);
   const ids = r.items.map((i) => i.sol.id);
-  assert.ok(ids.includes('food-burner'));
-  assert.ok(ids.indexOf('food-burner') > ids.indexOf('food-nocook'));
+  assert.ok(!ids.includes('food-burner'), 'пальник не радимо без підтвердження безпеки виходу');
 });
 
 test('рекомендації змінюються залежно від ресурсів', () => {
   const without = recommend('food', ctxOf(), '30').items.map((i) => i.sol.id);
   const withThermos = recommend('food', ctxOf({ profile: { equip: ['thermos', 'station'] } }), '30').items.map((i) => i.sol.id);
   assert.ok(!without.includes('food-thermos'));
-  assert.ok(withThermos.includes('food-thermos') || withThermos.includes('food-lowpower'));
-  assert.notDeepEqual(without, withThermos);
+  assert.ok(!withThermos.includes('food-thermos') && !withThermos.includes('food-lowpower'), 'термос і станція без окропу не готують гаряче');
+  const withHotWater = recommend('food', ctxOf({ profile: { equip: ['thermos'] }, reserve: [{ id:'hot', key:'storedHotWater', name:'Готовий окріп', cat:'thermos', qty:1, unit:'л', ok:true }] }), '30', 10).items.map((i) => i.sol.id);
+  assert.ok(withHotWater.includes('food-thermos'), 'підтверджений окріп робить термос застосовним');
+  assert.notDeepEqual(without, withHotWater);
 
   const e1 = recommend('energy', ctxOf(), '30').items.map((i) => i.sol.id);
   const e2 = recommend('energy', ctxOf({ profile: { equip: ['powerbank', 'station'] } }), '30').items.map((i) => i.sol.id);

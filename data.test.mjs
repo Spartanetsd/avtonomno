@@ -7,6 +7,8 @@ import { SOURCES, SEASONS, NEEDS, NEED_ORDER, RESERVE_CATALOG, LEVELS } from './
 import { PHYSICS } from './physics.js';
 import { RULES, SYMPTOMS } from './safety.js';
 import { PICS, PIC_FILES, homePicKey } from './pics.js';
+import { BAG, PREP, ALARM_STEPS, ALARM_FOLDS, FIRST_STEPS, WHILE_BLOCKS, BLOCKED, AFTER_STEPS, SECTIONS, PRAISE, SHARE_TEXT } from './shelter.js';
+import { SHEET_RULES, TOOL_LABEL } from './shelterui.js';
 
 const SEASON_KEYS = ['winter', 'spring', 'summer', 'autumn'];
 
@@ -85,13 +87,14 @@ test('латинська літера U+005A / U+007A відсутня в тек
     else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k);
   };
   walk(SOLUTIONS); walk(MYTHS); walk(SEASONS); walk(NEEDS); walk(PHYSICS); walk(RULES); walk(SYMPTOMS); walk(RESERVE_CATALOG);
+  walk([BAG, PREP, ALARM_STEPS, ALARM_FOLDS, FIRST_STEPS, WHILE_BLOCKS, BLOCKED, AFTER_STEPS, SECTIONS, PRAISE, SHARE_TEXT, SHEET_RULES, TOOL_LABEL]);
   walk(Object.values(SOURCES).map((s) => ({ org: s.org, title: s.title })));
   const bad = texts.filter((t) => LAT.test(t));
   assert.deepEqual(bad, []);
   const manifest = JSON.parse(readFileSync(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
   for (const k of ['name', 'short_name', 'description']) assert.ok(!LAT.test(manifest[k]), k);
   for (const f of readdirSync(new URL('.', import.meta.url))) assert.ok(!LAT.test(f), `файл: ${f}`);
-  for (const f of ['README.md', 'LICENSE', 'pages-deploy.yml']) {
+  for (const f of ['README.md', 'LICENSE', '.github/workflows/pages-deploy.yml']) {
     const lines = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8').replace(/https?:\/\/\S+/g, '').split('\n');
     const i = lines.findIndex((l) => LAT.test(l));
     assert.equal(i, -1, `${f}, рядок ${i + 1}: ${lines[i]}`);

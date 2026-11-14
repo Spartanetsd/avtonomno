@@ -97,12 +97,18 @@ export interface Profile {
   budget: number;
   setupDone: boolean;
   setupDismissed: boolean;
+  /** Номінальна безперервна потужність 230 В AC виходу станції, Вт */
+  stationW: number | null;
+  /** Номінальна потужність електрочайника/нагрівача 230 В, Вт */
+  kettleW: number | null;
 }
 
 export interface DayState {
   power: boolean | null;
   gas: boolean | null;
   tap: boolean | null;
+  /** Чи безпечно зараз виходити надвір? Невідомо за замовчуванням. */
+  outsideSafe: boolean | null;
   waterL: number | null;
   batteryPct: number | null;
   roomC: number | null;
@@ -115,10 +121,25 @@ export interface DayState {
 }
 
 export interface Settings {
-  theme: 'auto' | 'light' | 'dark';
+  /** 'black' — темна тема з чистим чорним тлом (економить заряд на OLED) */
+  theme: 'auto' | 'light' | 'dark' | 'black';
   contrast: boolean;
   motion: boolean;
   season: Season | null;
+}
+
+/** Режим «Я в укритті». Час — мілісекунди від 1970 р. */
+export interface ShelterLog {
+  /** Коли ввімкнули режим; null — режим вимкнено */
+  since: number | null;
+  /** Коли користувач підтвердив зовнішню інформацію про відбій; це не офіційний сигнал */
+  after: number | null;
+  /** Скільки разів вчасно сховалися */
+  count: number;
+  /** Скільки хвилин загалом провели в укритті */
+  minutes: number;
+  /** Коли завершили востаннє */
+  last: number | null;
 }
 
 export interface AppData {
@@ -130,6 +151,13 @@ export interface AppData {
   notes: string;
   calc: Record<string, Record<string, any>>;
   settings: Settings;
+  /** Позначені пункти тривожної валізки */
+  bag: string[];
+  /** Коли валізку перевіряли востаннє (мс) */
+  bagAt: number | null;
+  /** Позначені пункти підготовки укриття */
+  prep: string[];
+  shelter: ShelterLog;
 }
 
 export interface Ctx {
@@ -150,11 +178,15 @@ export interface Ctx {
   power: boolean;
   gas: boolean;
   tap: boolean;
+  outsideSafe: boolean | null;
   waterL: number | null;
   batteryPct: number | null;
   roomC: number | null;
   heatSource: boolean;
+  electricHeatSource: boolean;
   burnerAllowed: boolean;
+  /** Режим «Я в укритті»: місце — укриття, надвір не можна, температура вдома не враховується */
+  alarm: boolean;
 }
 
 export interface Alert {

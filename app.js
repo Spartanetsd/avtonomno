@@ -8,10 +8,13 @@ import { buildContext, recommend, quickActions, planFromState, searchLibrary, fe
 import { stateAlerts, SYMPTOMS } from './safety.js';
 import { PHYSICS_BY_ID } from './physics.js';
 import { fmt } from './calc.js';
-import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList, pic, picImg } from './ui.js';
+import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList, pic, picImg, applyTheme, plural } from './ui.js';
 import { homePicKey } from './pics.js';
 import { screens } from './screens.js';
 import { calcScreens } from './calcui.js';
+import { readiness, sectionsFor, elapsedMin, durText } from './shelter.js';
+import { shelterScreens, readyHtml, updateChip, TOOL_ICON } from './shelterui.js';
+import './tools.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
@@ -21,7 +24,14 @@ const main = /** @type {HTMLElement} */ (document.getElementById('main'));
 
 export function ctx() {
   const d = store.get();
-  return buildContext({ profile: d.profile, state: d.state, reserve: d.reserve, season: d.settings.season || seasonByDate(new Date()) });
+  // У режимі «Я в укритті» підбір рахує місце укриттям: жодного вогню й горіння, надвір не можна
+  return buildContext({ profile: d.profile, state: d.state, reserve: d.reserve, season: d.settings.season || seasonByDate(new Date()), alarm: inShelter() });
+}
+
+/** Режим «Я в укритті» ввімкнено (і відбою ще не було). */
+function inShelter() {
+  const sh = store.get().shelter;
+  return sh.since != null && sh.after == null;
 }
 
 /* ───────────── Маршрути ───────────── */
@@ -36,7 +46,12 @@ const ROUTES = [
   [/^\/plan$/, () => viewPlan()],
   [/^\/saved$/, () => viewSaved()],
   [/^\/safety$/, () => screens.safety()],
+  [/^\/shelter$/, () => shelterScreens.shelter()],
+  [/^\/bag$/, () => shelterScreens.bag()],
+  [/^\/prep$/, () => shelterScreens.prep()],
+  [/^\/sheet$/, () => shelterScreens.sheet()],
   [/^\/res$/, () => screens.resources()],
+  [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
   [/^\/setup\/done$/, () => screens.setupDone()],
   [/^\/setup(?:\/(\d))?$/, (m) => screens.setup(Number(m[1] || 1))],
@@ -70,6 +85,7 @@ function render() {
   main.innerHTML = view.html;
   document.title = view.title ? `${view.title} · Автономно` : 'Автономно';
   setTab(view.tab);
+  updateChip(path);
   if (view.after) view.after();
   if (samePath) {
     window.scrollTo(0, scrollY);
@@ -111,7 +127,8 @@ function viewHome() {
   const c = ctx();
   const hour = new Date().getHours();
   const greet = hour < 5 ? 'Доброї ночі.' : hour < 12 ? 'Доброго ранку.' : hour < 17 ? 'Добрий день.' : hour < 23 ? 'Добрий вечір.' : 'Доброї ночі.';
-  const auto = d.settings.season == null;
+  // Під час тривоги живий статус — найперше, що бачить людина
+  const live = d.shelter.since != null;
   const setup = !d.profile.setupDone && !d.profile.setupDismissed
     ? `<section class="card setup">
         <div><h2>Налаштуйте за хвилину</h2><p class="muted">Де ви, що є під рукою, які обмеження — і підбір стане точнішим. Можна пропустити.</p></div>
@@ -122,26 +139,42 @@ function viewHome() {
     title: '',
     tab: 'home',
     html: `
+    ${live ? alarmCard(d) : ''}
     ${pic(homePicKey(hour), { cls: 'hero', eager: true })}
     <section class="hello">
       <p class="greet">${greet}</p>
       <h1 tabindex="-1">Знайдемо рішення.</h1>
       <p class="sub">Що потрібно вирішити зараз?</p>
     </section>
+    ${live ? '' : alarmCard(d)}
     ${setup}
+    ${!live && d.state.outsideSafe !== true ? note('caution', 'Вихід надвір не підтверджений', 'Поки ви не позначите, що зараз безпечно виходити, рішення з виходом надвір не пропонуються. Це можна змінити в «Мій стан сьогодні».', '<p><a href="#/state" class="pill">Оцінити умови виходу</a></p>') : ''}
     <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
-    <div class="season-row">
-      ${seg('season', SEASON_ORDER.map((s) => ({ v: s, label: SEASONS[s].label, icon: SEASONS[s].icon })), c.season, 'Сезон')}
-      <p class="hint">${auto ? 'Сезон підібрано за датою. Змініть, якщо потрібно.' : '<button class="linkbtn" type="button" data-act="season-auto">Повернути вибір за датою</button>'}</p>
-    </div>
     ${stateCard(d, c)}
+    ${readyHtml(readiness(d, c), true)}
     <div class="rows">
       <a class="row" href="#/season/${c.season}">${icon(SEASONS[c.season].icon)}<span>Сценарій сезону: ${esc(SEASONS[c.season].label)}</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/all">${icon('i-book')}<span>Усі рішення й пошук</span>${icon('i-chev', 'end')}</a>
+      <a class="row" href="#/saved">${icon('i-star')}<span>Збережене${d.favs.length ? ` <span class="muted">· ${d.favs.length}</span>` : ''}</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/safety">${icon('i-shield')}<span>Безпека та екстрені номери</span>${icon('i-chev', 'end')}</a>
     </div>
     <p class="offline-line"><a href="#/about" class="ob-link" id="offline-badge">${offlineBadge()}</a></p>`,
   };
+}
+
+/**
+ * Вхід у режим тривоги — завжди на видноті; під час тривоги — живий таймер.
+ * @param {import('./types').AppData} d
+ */
+function alarmCard(d) {
+  const sh = d.shelter;
+  if (sh.since != null && sh.after == null) {
+    return `<a class="card alarm live" href="#/shelter"><i class="live-dot" aria-hidden="true"></i><span class="al-t"><b>Ви в укритті · <span class="sh-live-t short">${esc(durText(elapsedMin(sh.since, Date.now()), true))}</span></b><span>Відкрити режим укриття</span></span>${icon('i-chev', 'end')}</a>`;
+  }
+  if (sh.since != null) {
+    return `<a class="card alarm" href="#/shelter"><span class="al-i">${icon('i-check')}</span><span class="al-t"><b>Ви підтвердили відбій</b><span>Відкрийте кроки після виходу</span></span>${icon('i-chev', 'end')}</a>`;
+  }
+  return `<a class="card alarm" href="#/shelter"><span class="al-i">${icon('i-shelter')}</span><span class="al-t"><b>Повітряна тривога?</b><span>Що робити й режим «Я в укритті»</span></span>${icon('i-chev', 'end')}</a>`;
 }
 
 /**
@@ -201,7 +234,7 @@ function viewNeed(need, q) {
     ? `${note('info', 'Зараз це не потрібно', r.noneText)}<button class="btn ghost wide" type="button" data-act="mode" data-v="long">Підготуватися наперед</button>`
     : r.none
       ? `<div class="none-art">${picImg('empty-none', 'pic-e')}</div>${note('caution', 'Безпечного рішення не знайдено', r.noneText)}`
-      : r.items.map(recCard).join('');
+      : r.items.map((it, i) => recCard(it, i === 0 && r.items.length > 1)).join('');
   const help = r.wouldHelp.length ? `<p class="hint">${icon('i-info')} Більше варіантів, якщо є: ${esc(r.wouldHelp.join('; '))}. <a href="#/res">Оновити резерв</a></p>` : '';
   const signs = signsFor(need, c);
   const blocked = r.blocked.length
@@ -211,6 +244,7 @@ function viewNeed(need, q) {
     title: meta.title,
     tab: 'home',
     html: `${pageHead(meta.title, '#/', `${meta.label}: ${meta.sub}`)}
+    ${inShelter() ? note('info', 'Ви в укритті', 'Підбір це враховує: жодного вогню й горіння, нічого, для чого треба виходити надвір.', '<a class="note-a" href="#/shelter">Режим укриття' + icon('i-chev') + '</a>') : ''}
     ${alertsHtml}
     ${r.irrelevant && !acts.length ? '' : `<section class="card now" aria-labelledby="now-h">
       <h2 id="now-h">Зробіть зараз</h2>
@@ -227,15 +261,20 @@ function viewNeed(need, q) {
   };
 }
 
-/** @param {import('./types').Rec} rec */
-function recCard(rec) {
+/**
+ * Картка рекомендації. Перша — «Найкраще зараз» із першими кроками.
+ * @param {import('./types').Rec} rec @param {boolean} [top]
+ */
+function recCard(rec, top = false) {
   const s = rec.sol;
   const c = ctx();
   const gate = safetyGate(s, c);
-  return `<a class="card rec" href="#/s/${s.id}">
+  return `<a class="card rec${top ? ' top' : ''}" href="#/s/${s.id}">
+    ${top ? `<p class="top-l">${icon('i-star-f')}Найкраще зараз</p>` : ''}
     <div class="rec-top">${levelBadge(s.level)}${riskBadge(gate.level)}</div>
     <h3>${esc(s.title)}</h3>
     <p class="muted">${esc(s.result)}</p>
+    ${top ? `<ol class="mini-steps">${s.steps.slice(0, 2).map((x) => `<li>${esc(x)}</li>`).join('')}</ol><p class="more">Усі ${s.steps.length} ${plural(s.steps.length, 'крок', 'кроки', 'кроків')}${icon('i-chev')}</p>` : ''}
     <ul class="meta">
       <li>${icon('i-clock')}<span>${minutes(s.prepMin)}</span></li>
       <li>${icon('i-coin')}<span>${esc(costText(s.cost, rec.costNow))}</span></li>
@@ -396,8 +435,12 @@ function libFilters() {
 
 function libResults() {
   const res = searchLibrary({ q: lib.q, need: lib.need, season: lib.season, level: lib.level, onlyNow: lib.onlyNow }, ctx());
-  if (!res.length) return empty('empty-search', 'Нічого не знайдено', 'Спробуйте інше слово або приберіть фільтри. Ми поруч.');
-  return `<p class="count">Знайдено: ${res.length}</p><div class="list">${res.map((s) => {
+  const secs = sectionsFor(lib.q);
+  const secHtml = secs.length ? `<div class="rows sec-hits" aria-label="Розділи">${secs.map((x) => x.href
+    ? `<a class="row" href="${x.href}">${icon(x.icon)}<span>${esc(x.title)}</span>${icon('i-chev', 'end')}</a>`
+    : `<button class="row" type="button" data-act="tool" data-v="${x.tool}">${icon(TOOL_ICON[/** @type {'light'|'breathe'|'signal'} */ (x.tool)])}<span>${esc(x.title)}</span>${icon('i-chev', 'end')}</button>`).join('')}</div>` : '';
+  if (!res.length) return secHtml || empty('empty-search', 'Нічого не знайдено', 'Спробуйте інше слово або приберіть фільтри. Ми поруч.');
+  return `${secHtml}<p class="count">Знайдено: ${res.length}</p><div class="list">${res.map((s) => {
     if ('myth' in s) return `<a class="card item myth" href="#/s/${s.id}"><div class="rec-top">${riskBadge('danger')}<span class="badge plain">${esc(NEEDS[s.need].label)}</span></div><h3>${esc(s.title)}</h3><p class="muted">Чому ні — і що робити замість</p></a>`;
     return `<a class="card item" href="#/s/${s.id}"><div class="rec-top">${levelBadge(s.level)}${riskBadge(s.risk)}<span class="badge plain">${esc(NEEDS[s.need].label)}</span></div><h3>${esc(s.title)}</h3><p class="muted">${esc(s.problem)}</p><ul class="meta"><li>${icon('i-clock')}<span>${minutes(s.prepMin)}</span></li><li>${dots(s.difficulty)}</li></ul></a>`;
   }).join('')}</div>`;
@@ -435,6 +478,10 @@ function viewSeason(s) {
     ${pic(`season-${s}`)}
     <section class="card rule">${icon(se.icon)}<p>${esc(se.rule)}</p></section>
     ${c.season !== s ? `<button class="btn ghost wide" type="button" data-act="season" data-v="${s}">Зробити «${esc(se.label)}» поточним сезоном</button>` : ''}
+    <div class="season-row">
+      ${seg('season-go', SEASON_ORDER.map((x) => ({ v: x, label: SEASONS[x].label, icon: SEASONS[x].icon })), s, 'Інший сезон')}
+      <p class="hint">${store.get().settings.season == null ? 'Поточний сезон підібрано за датою.' : '<button class="linkbtn" type="button" data-act="season-auto">Повернути вибір сезону за датою</button>'}</p>
+    </div>
     <h2 class="h2">Головні завдання</h2>
     <ol class="tasks">${se.tasks.map((t) => `<li class="card task"><h3>${esc(t.t)}</h3><div class="links">${t.ids.map((id) => BY_ID.get(id)).filter(Boolean).map((x) => x ? `<a class="pill" href="#/s/${x.id}">${esc(x.title)}${icon('i-chev')}</a>` : '').join('')}</div></li>`).join('')}</ol>
     <h2 class="h2">Попередження сезону</h2>
@@ -472,8 +519,8 @@ function viewSaved() {
   const favs = store.get().favs.map((id) => findAny(id)).filter(Boolean);
   return {
     title: 'Збережене',
-    tab: 'saved',
-    html: `${pageHead('Збережене', '', 'Рішення, до яких хочеться повертатися')}
+    tab: 'res',
+    html: `${pageHead('Збережене', '#/res', 'Рішення, до яких хочеться повертатися')}
     ${favs.length ? `<div class="list">${favs.map((s) => s ? `<div class="card item fav">
         <a href="#/s/${s.id}" class="fav-a"><h3>${esc(s.title)}</h3><p class="muted">${esc('myth' in s ? 'Небезпечний міф' : s.result)}</p></a>
         <button class="iconbtn" type="button" data-act="fav" data-v="${s.id}" aria-label="Прибрати зі збереженого">${icon('i-star-f')}</button>
@@ -490,6 +537,7 @@ on({
     render();
   },
   'season-auto': () => { store.update((d) => { d.settings.season = null; }); render(); },
+  'season-go': (el) => app.go(`#/season/${el.dataset.v}`),
   mode: (el) => {
     const { path } = parseHash();
     history.replaceState(null, '', `#${path}?m=${el.dataset.v}`);
@@ -532,13 +580,7 @@ on({
 /* ───────────── Тема та доступність ───────────── */
 
 export function applySettings() {
-  const s = store.get().settings;
-  const root = document.documentElement;
-  if (s.theme === 'auto') root.removeAttribute('data-theme'); else root.dataset.theme = s.theme;
-  if (s.contrast) root.dataset.contrast = 'more'; else root.removeAttribute('data-contrast');
-  if (s.motion) root.dataset.motion = 'reduce'; else root.removeAttribute('data-motion');
-  const dark = s.theme === 'dark' || (s.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0B1424' : '#F8F5EF'));
+  applyTheme(store.get().settings);
 }
 
 /* ───────────── Сповіщення ───────────── */
@@ -567,7 +609,7 @@ let reloading = false;
 function offlineBadge() {
   const net = navigator.onLine ? '' : ' · зараз без інтернету';
   switch (swInfo.status) {
-    case 'ready': return `<span class="ob ok">${icon('i-offline')}Готово до роботи офлайн${net}</span>`;
+    case 'ready': return `<span class="ob ok">${icon('i-offline')}Основні функції офлайн · ілюстрації ${swInfo.picsCached}/${swInfo.picsTotal || 38}${net}</span>`;
     case 'partial': return `<span class="ob wait">${icon('i-sync')}Кешування: ${swInfo.cached} з ${swInfo.total}${net}</span>`;
     case 'unsupported': return `<span class="ob off">${icon('i-info')}Офлайн-режим недоступний у цьому браузері${net}</span>`;
     case 'error': return `<span class="ob off">${icon('i-warn')}Офлайн-режим не підтверджено${net}</span>`;
@@ -664,6 +706,9 @@ window.addEventListener('offline', refreshBadge);
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); swInfo.install = e; /** @type {any} */ (window).__avInstall = e; refreshBadge(); });
 window.addEventListener('appinstalled', () => { swInfo.install = null; refreshBadge(); });
 window.addEventListener('av-recheck', () => checkOffline());
+window.addEventListener('av-cache-pics', () => {
+  navigator.serviceWorker?.ready.then((reg) => { reg.active?.postMessage({ type: 'CACHE_PICS' }); checkOffline(); });
+});
 
 /* ───────────── Запуск ───────────── */
 
@@ -692,4 +737,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 render();
 /** @type {any} */ (window).__avReady = true;
 initSW();
+// Живий таймер режиму укриття: позначка в шапці й лічильники на сторінці
+setInterval(() => updateChip(parseHash().path), 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateChip(parseHash().path); });
 

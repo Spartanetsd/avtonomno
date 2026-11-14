@@ -4,7 +4,7 @@
 // Ілюстрації лежать в окремому кеші PICS_CACHE і не завантажуються заново
 // з кожною версією коду. Замінили чи додали картинку — збільште PICS_CACHE.
 
-const VERSION = 'avtonomno-v1.2.0';
+const VERSION = 'avtonomno-v2.1.0';
 const PICS_CACHE = 'avtonomno-pics-v1';
 const PREFIX = 'avtonomno-';
 
@@ -24,6 +24,9 @@ const CORE = [
   './physics.js',
   './store.js',
   './pics.js',
+  './shelter.js',
+  './shelterui.js',
+  './tools.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',

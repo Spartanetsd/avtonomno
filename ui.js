@@ -165,6 +165,31 @@ export function picImg(key, cls = '', fallback = '') {
   return `<img class="${c}" src="${p.src}" width="${p.w}" height="${p.h}" alt="${esc(p.alt)}" decoding="async" loading="lazy"${fallback ? ` data-illo="${fallback}"` : ''}>`;
 }
 
+/**
+ * Тема, контрастність і анімація на корені документа.
+ * «Чорна» — це темна тема з чистим чорним тлом (data-black).
+ * @param {import('./types').Settings} s
+ */
+export function applyTheme(s) {
+  const root = document.documentElement;
+  if (s.theme === 'auto') root.removeAttribute('data-theme'); else root.dataset.theme = s.theme === 'black' ? 'dark' : s.theme;
+  if (s.theme === 'black') root.dataset.black = '1'; else root.removeAttribute('data-black');
+  if (s.contrast) root.dataset.contrast = 'more'; else root.removeAttribute('data-contrast');
+  if (s.motion) root.dataset.motion = 'reduce'; else root.removeAttribute('data-motion');
+  const dark = s.theme === 'dark' || s.theme === 'black' || (s.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const color = s.theme === 'black' ? '#000000' : dark ? '#0B1424' : '#F8F5EF';
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
+}
+
+/**
+ * Смужка прогресу.
+ * @param {number} pct @param {string} label доступна назва
+ */
+export function bar(pct, label) {
+  const v = Math.max(0, Math.min(100, Math.round(pct)));
+  return `<span class="bar${v >= 100 ? ' full' : ''}" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v}" aria-label="${esc(label)}"><i style="width:${v}%"></i></span>`;
+}
+
 /** @param {string} title @param {string} [back] @param {string} [sub] */
 export function pageHead(title, back = '', sub = '') {
   return `<div class="ph">${back ? `<a class="back" href="${esc(back)}" aria-label="Назад">${icon('i-back')}<span>Назад</span></a>` : ''}

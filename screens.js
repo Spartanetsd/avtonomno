@@ -1,5 +1,5 @@
 // @ts-check
-// Екрани: мої ресурси, стан сьогодні, майстер налаштування, резерв, безпека, про застосунок.
+// Екрани: «Готовність», мій резерв, стан сьогодні, майстер налаштування, безпека, про застосунок.
 
 import * as store from './store.js';
 import { PLACES, LIMITS, DURATIONS, BUDGETS, EQUIP, UTILITIES, RESERVE_CATS, RESERVE_CATALOG, SOURCES, NEEDS } from './data.js';
@@ -7,11 +7,13 @@ import { MYTHS } from './solutions.js';
 import { reserveInsight } from './engine.js';
 import { RULES, SYMPTOMS, EMERGENCY, RISK_LEVELS, stateAlerts } from './safety.js';
 import { fmt } from './calc.js';
-import { app, on, esc, icon, illo, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg } from './ui.js';
+import { app, on, esc, icon, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg, applyTheme } from './ui.js';
+import { readiness } from './shelter.js';
+import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '1.2.0';
+const VERSION = '2.1.0';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -69,11 +71,11 @@ const STATE_FIELDS = {
 /** @returns {View} */
 function stateView() {
   const s = store.get().state;
-  const tri = (/** @type {'power'|'gas'|'tap'} */ k, /** @type {string} */ label) => {
+  const tri = (/** @type {'power'|'gas'|'tap'|'outsideSafe'} */ k, /** @type {string} */ label) => {
     const v = s[k] === true ? '1' : s[k] === false ? '0' : '';
     return `<div class="field"><span class="flabel" id="lb-${k}">${esc(label)}</span>
       <div class="seg" role="group" aria-labelledby="lb-${k}">
-        ${[['1', 'Є'], ['0', 'Немає'], ['', 'Не знаю']].map(([vv, l]) => `<button type="button" class="seg-b" data-act="st-tri" data-f="${k}" data-v="${vv}" aria-pressed="${v === vv}">${l}</button>`).join('')}
+        ${(k === 'outsideSafe' ? [['0', 'Небезпечно'], ['1', 'Безпечно'], ['', 'Не знаю']] : [['1', 'Є'], ['0', 'Немає'], ['', 'Не знаю']]).map(([vv, l]) => `<button type="button" class="seg-b" data-act="st-tri" data-f="${k}" data-v="${vv}" aria-pressed="${v === vv}">${l}</button>`).join('')}
       </div></div>`;
   };
   const f = (/** @type {keyof typeof STATE_FIELDS} */ id, /** @type {string} */ hint = '') => {
@@ -90,6 +92,9 @@ function stateView() {
       ${tri('power', 'Електроенергія')}
       ${tri('gas', 'Газ')}
       ${tri('tap', 'Вода з крана')}
+      <h2>Безпека виходу</h2>
+      ${tri('outsideSafe', 'Чи безпечно зараз виходити надвір?')}
+      <p class="hint">Невідомо = не рекомендувати вихід. Вибір «Безпечно» — лише ваша оцінка зараз, не офіційний дозвіл. Перевіряйте обстановку перед кожним виходом.</p>
     </section>
     <section class="card form">
       <h2>Запаси й умови</h2>
@@ -150,7 +155,7 @@ function stateAlertsHtml() {
 
 on({
   'st-tri': (el) => {
-    const k = /** @type {'power'|'gas'|'tap'} */ (el.dataset.f);
+    const k = /** @type {'power'|'gas'|'tap'|'outsideSafe'} */ (el.dataset.f);
     const v = el.dataset.v === '1' ? true : el.dataset.v === '0' ? false : null;
     store.update((d) => { d.state[k] = v; d.state.updated = new Date().toISOString(); });
     app.render();
@@ -194,7 +199,14 @@ function setupView(n) {
     const eq = EQUIP.map((e) => chip('su-equip', e.key, e.label, p.equip.includes(e.key))).join('');
     const none = !p.equip.length && d.state.power !== true && d.state.gas !== true && d.state.tap !== true;
     body = `<p class="hint">Позначте все, що є зараз. Кілька варіантів — можна.</p>
-      <div class="choices">${util}${eq}${chip('su-none', '1', 'Нічого з переліченого', none)}</div>`;
+      <div class="choices">${util}${eq}${chip('su-none', '1', 'Нічого з переліченого', none)}</div>
+      ${p.equip.includes('station') && p.equip.includes('electricKettle') ? `<fieldset class="power-verify">
+        <legend>Чи зможе станція нагріти воду?</legend>
+        <p class="hint">Для чайника 230 В потрібен відповідний вихід AC. Укажіть потужність за паспортами обох пристроїв. Невідоме значення = не підтверджено.</p>
+        <div class="field"><label for="station-w">Максимальна тривала потужність виходу станції (Вт)</label><input id="station-w" type="number" inputmode="numeric" min="1" max="20000" step="1" value="${p.stationW ?? ''}" placeholder="Наприклад 300" /></div>
+        <div class="field"><label for="kettle-w">Споживання електронагрівача (Вт)</label><input id="kettle-w" type="number" inputmode="numeric" min="1" max="10000" step="1" value="${p.kettleW ?? ''}" placeholder="Наприклад 1000" /></div>
+        <p class="hint">Якщо споживання нагрівача більше за вихід станції, кип’ятіння від станції не пропонуватиметься. Перевіряйте також заряд і сумісність роз’єму.</p>
+      </fieldset>` : ''}`;
   } else if (step === 3) {
     q = 'Які обмеження?';
     body = `<p class="hint">Небезпечні варіанти за цими умовами не з’являться серед рекомендованих.</p>
@@ -218,7 +230,18 @@ function setupView(n) {
       ${step < SETUP_STEPS ? `<a class="btn primary" href="#/setup/${step + 1}">Далі</a>` : `<button class="btn primary" type="button" data-act="su-finish">Готово</button>`}
       <button class="btn ghost" type="button" data-act="su-skip">Пропустити</button>
     </div>
-    <p class="hint">Усі відповіді можна змінити пізніше в розділі «Мої ресурси».</p>`,
+    <p class="hint">Усі відповіді можна змінити пізніше в розділі «Готовність». Вихід надвір визначайте в «Мій стан сьогодні» перед отриманням рекомендацій.</p>`,
+    after() {
+      for (const [id, key] of [['station-w', 'stationW'], ['kettle-w', 'kettleW']]) {
+        const el = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        el?.addEventListener('input', () => {
+          const n = Number(el.value);
+          const max = key === 'stationW' ? 20000 : 10000;
+          const value = el.value !== '' && Number.isFinite(n) && n >= 1 && n <= max ? Math.round(n) : null;
+          store.update((d) => { if (key === 'stationW') d.profile.stationW = value; else d.profile.kettleW = value; });
+        });
+      }
+    },
   };
 }
 
@@ -264,71 +287,77 @@ function setupDoneView() {
     ${pic('setup-done', { eager: true })}
     <div class="row-btns">
       <a class="btn primary" href="#/plan">Знайти рішення</a>
-      <a class="btn ghost" href="#/res">Мої ресурси</a>
+      <a class="btn ghost" href="#/res">Готовність</a>
     </div>
-    <p class="hint">Відповіді можна змінити будь-коли в розділі «Мої ресурси».</p>`,
+    <p class="hint">Відповіді можна змінити будь-коли в розділі «Готовність».</p>`,
   };
 }
 
-/* ───────────── Мої ресурси ───────────── */
+/* ───────────── Готовність ───────────── */
 
-/** @returns {View} */
+const THEMES = [{ v: 'auto', label: 'Авто' }, { v: 'light', label: 'Світла' }, { v: 'dark', label: 'Темна' }, { v: 'black', label: 'Чорна' }];
+
+/** «Готовність»: зведення підготовки, стан, ситуація, нотатки й вигляд. @returns {View} */
 function resourcesView() {
   const d = store.get();
   const p = d.profile;
-  const s = d.state;
-  const eq = p.equip.map((k) => (EQUIP.find((e) => e.key === k) || RESERVE_CATALOG.find((r) => r.key === k))?.label).filter(Boolean);
-  const util = [s.power === true ? 'світло' : null, s.gas === true ? 'газ' : null, s.tap === true ? 'вода з крана' : null].filter(Boolean);
+  const r = readiness(d, app.ctx());
+  const sit = [p.place ? PLACES[p.place] : 'місце не вказано', DURATIONS[p.duration]].join(' · ');
+  const nf = d.favs.length;
   return {
-    title: 'Мої ресурси',
+    title: 'Готовність',
     tab: 'res',
-    html: `${pageHead('Мої ресурси', '', 'Ситуація, стан і запаси — лише на цьому пристрої')}
-    ${pic('reserve')}
-    <section class="card">
-      <div class="card-h"><h2>Моя ситуація</h2><a class="linkbtn" href="#/setup/1">Змінити</a></div>
-      <dl class="kv">
-        <div><dt>Місце</dt><dd>${esc(p.place ? PLACES[p.place] : 'не вказано')}</dd></div>
-        <div><dt>Доступно</dt><dd>${esc([...util, ...eq].join(', ') || 'не вказано')}</dd></div>
-        <div><dt>Обмеження</dt><dd>${esc(p.limits.map((k) => LIMITS[k]).join('; ') || 'немає')}</dd></div>
-        <div><dt>Термін</dt><dd>${esc(DURATIONS[p.duration])}</dd></div>
-        <div><dt>Бюджет</dt><dd>${esc((BUDGETS.find((b) => b.v === p.budget) || BUDGETS[0]).label)}</dd></div>
-      </dl>
-    </section>
-    <section class="card">
-      <div class="card-h"><h2>Мій стан сьогодні</h2><a class="linkbtn" href="#/state">Змінити</a></div>
-      <p class="muted">${esc(stateSummary(d))}</p>
-    </section>
-    <section class="sec" aria-labelledby="res-h">
-      <h2 class="h2" id="res-h">Мій резерв</h2>
-      <div id="reserve-insight">${insightHtml()}</div>
-      <div id="reserve-list">${reserveListHtml()}</div>
-      <details class="card fold" id="add-fold"><summary>${icon('i-plus')}<span>Додати до резерву</span></summary>${addHtml()}</details>
-    </section>
+    html: `${pageHead('Готовність', '', 'Підготовка сьогодні — спокій завтра')}
+    ${readyHtml(r, false)}
+    <div class="rows">
+      <a class="row two" href="#/state">${icon('i-thermo')}<span><b>Мій стан сьогодні</b><span class="muted">${esc(stateSummary(d))}</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/setup/1">${icon('i-home')}<span><b>Моя ситуація</b><span class="muted">${esc(sit)}</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/saved">${icon('i-star')}<span><b>Збережене</b><span class="muted">${nf ? `${nf} ${plural(nf, 'рішення', 'рішення', 'рішень')}` : 'Поки порожньо'}</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/sheet">${icon('i-print')}<span><b>Пам’ятка для укриття</b><span class="muted">Роздрукувати для свого будинку</span></span>${icon('i-chev', 'end')}</a>
+    </div>
     <section class="card">
       <h2><label for="notes">Нотатки на випадок</label></h2>
-      <textarea id="notes" rows="4" maxlength="4000" placeholder="Адреса найближчого пункту незламності, телефони рідних, ліки, місце зустрічі…">${esc(d.notes)}</textarea>
+      <textarea id="notes" rows="4" maxlength="4000" placeholder="Адреси найближчих укриттів і пункту незламності, телефони рідних, ліки, місце зустрічі…">${esc(d.notes)}</textarea>
       <p class="hint">Зберігається автоматично. Доступно офлайн.</p>
     </section>
     <section class="card">
-      <h2>Дані</h2>
-      <div class="row-btns">
-        <button class="btn ghost" type="button" data-act="data-export">${icon('i-download')}<span>Експорт JSON</span></button>
-        <label class="btn ghost" for="import-file">${icon('i-upload')}<span>Імпорт JSON</span></label>
-        <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
-      </div>
-      <p class="hint">Експорт — резервна копія запасів, ситуації й збереженого. Імпорт замінює поточні запаси після підтвердження.</p>
-      ${!store.isPersistent() ? note('caution', 'Дані не зберігаються', store.getError() || 'Браузер блокує локальне сховище. Зробіть експорт, щоб не втратити запаси.') : ''}
-      <button class="btn danger-ghost" type="button" data-act="data-reset">${icon('i-trash')}<span>Скинути всі дані</span></button>
-    </section>
-    <section class="card">
       <h2>Вигляд</h2>
-      <div class="field"><span class="flabel">Тема</span>${seg('set-theme', [{ v: 'auto', label: 'Авто' }, { v: 'light', label: 'Світла' }, { v: 'dark', label: 'Темна' }], d.settings.theme, 'Тема')}</div>
+      <div class="field"><span class="flabel">Тема</span>${seg('set-theme', THEMES, d.settings.theme, 'Тема')}</div>
+      <p class="hint">«Чорна» береже заряд на OLED-екранах і не засліплює в темряві укриття.</p>
       <div class="field"><div class="chips">${chip('set-contrast', '1', 'Висока контрастність', d.settings.contrast)}${chip('set-motion', '1', 'Менше анімації', d.settings.motion)}</div></div>
     </section>
     <div class="rows"><a class="row" href="#/about">${icon('i-info')}<span>Про застосунок і офлайн-режим</span>${icon('i-chev', 'end')}</a></div>`,
     after() {
       const t = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('notes'));
       t?.addEventListener('input', () => store.update((dd) => { dd.notes = t.value.slice(0, 4000); }));
+    },
+  };
+}
+
+/* ───────────── Мій резерв ───────────── */
+
+/** @returns {View} */
+function reserveView() {
+  return {
+    title: 'Мій резерв',
+    tab: 'res',
+    html: `${pageHead('Мій резерв', '#/res', 'Що є вдома — і які рішення це відкриває')}
+    ${pic('reserve')}
+    <div id="reserve-insight">${insightHtml()}</div>
+    <div id="reserve-list">${reserveListHtml()}</div>
+    <details class="card fold" id="add-fold"><summary>${icon('i-plus')}<span>Додати до резерву</span></summary>${addHtml()}</details>
+    <section class="card">
+      <h2>Дані</h2>
+      <div class="row-btns">
+        <button class="btn ghost" type="button" data-act="data-export">${icon('i-download')}<span>Повна резервна копія JSON</span></button>
+        <label class="btn ghost" for="import-file">${icon('i-upload')}<span>Імпорт JSON</span></label>
+        <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
+      </div>
+      <p class="hint">Експорт містить запаси, ситуацію, тему, калькулятори, обране, валізку й статистику укриття. Активну тривогу не переносимо з одного пристрою на інший. Імпорт повної копії замінить ці дані після підтвердження; старі часткові JSON теж підтримуються. Файл містить ваші локальні записи — зберігайте приватно.</p>
+      ${!store.isPersistent() ? note('caution', 'Дані не зберігаються', store.getError() || 'Браузер блокує локальне сховище. Зробіть експорт, щоб не втратити запаси.') : ''}
+      <button class="btn danger-ghost" type="button" data-act="data-reset">${icon('i-trash')}<span>Скинути всі дані</span></button>
+    </section>`,
+    after() {
       bindReserveInputs();
       const f = /** @type {HTMLInputElement|null} */ (document.getElementById('import-file'));
       f?.addEventListener('change', () => { if (f.files && f.files[0]) importFile(f.files[0]); f.value = ''; });
@@ -502,25 +531,19 @@ on({
 });
 
 function applyAndRender() {
-  const s = store.get().settings;
-  const root = document.documentElement;
-  if (s.theme === 'auto') root.removeAttribute('data-theme'); else root.dataset.theme = s.theme;
-  if (s.contrast) root.dataset.contrast = 'more'; else root.removeAttribute('data-contrast');
-  if (s.motion) root.dataset.motion = 'reduce'; else root.removeAttribute('data-motion');
-  const dark = s.theme === 'dark' || (s.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', dark ? '#0B1424' : '#F8F5EF'));
+  applyTheme(store.get().settings);
   app.render();
 }
 
 async function exportFile() {
   const payload = JSON.stringify(store.exportData(store.get()), null, 2);
-  const name = `avtonomno-reserve-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `avtonomno-full-backup-2.1-${new Date().toISOString().slice(0, 10)}.json`;
   const blob = new Blob([payload], { type: 'application/json' });
   try {
     const file = new File([blob], name, { type: 'application/json' });
     const nav = /** @type {any} */ (navigator);
     if (nav.canShare && nav.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
-      await nav.share({ files: [file], title: 'Автономно — резерв' });
+      await nav.share({ files: [file], title: 'Автономно — повна резервна копія' });
       return;
     }
   } catch (e) {
@@ -546,7 +569,7 @@ function importFile(file) {
     const res = store.importData(text, store.get());
     if ('error' in res) { app.toast(`Не вдалося імпортувати: ${res.error}`); return; }
     const cur = store.get().reserve.length;
-    if (!confirm(`Замінити поточні запаси (${cur}) даними з файлу (${res.counts.reserve})?`)) return;
+    if (!confirm(`Відновити дані з файлу? Запаси: ${cur} → ${res.counts.reserve}. Для повної копії також зміняться тема, калькулятори, налаштування й статистика. Активну тривогу не відновлюємо. Скасувати імпорт після підтвердження неможливо.`)) return;
     store.replaceAll(res.data);
     app.toast(`Імпортовано: ${res.counts.reserve} ${plural(res.counts.reserve, 'запис', 'записи', 'записів')}`);
     app.render();
@@ -567,6 +590,10 @@ function safetyView() {
       <h2>Екстрені номери</h2>
       <ul class="calls">${EMERGENCY.map((e) => `<li><a class="call" href="tel:${e.num}">${icon('i-phone')}<b>${e.num}</b><span>${esc(e.label)}</span></a></li>`).join('')}</ul>
     </section>
+    <div class="rows">
+      <a class="row" href="#/shelter">${icon('i-shelter')}<span>Повітряна тривога: що робити й режим «Я в укритті»</span>${icon('i-chev', 'end')}</a>
+      <a class="row" href="#/bag">${icon('i-bag')}<span>Тривожна валізка</span>${icon('i-chev', 'end')}</a>
+    </div>
     ${pic('safety')}
     <h2 class="h2">Ознаки небезпеки</h2>
     ${SYMPTOMS.map((sy) => `<details class="card fold sign ${sy.level}"><summary>${icon(sy.level === 'danger' ? 'i-alert' : 'i-warn')}<span>${esc(sy.title)}</span></summary>
@@ -591,7 +618,7 @@ function safetyView() {
 /** @param {any} sw */
 function offlineDetails(sw) {
   const status = {
-    ready: ['ok', 'Готово до роботи офлайн', 'Усі файли застосунку збережено на пристрої. Він відкриватиметься й без інтернету.'],
+    ready: ['ok', 'Основні функції офлайн — готові', 'Код і дані застосунку доступні без мережі. Ілюстрації зберігаються окремо й можуть бути ще не завантажені.'],
     partial: ['wait', 'Кешування ще триває', `Збережено ${sw.cached} з ${sw.total} файлів. Не закривайте застосунок, поки є інтернет.`],
     unsupported: ['off', 'Офлайн-режим недоступний', 'Цей браузер або спосіб відкриття не підтримує Service Worker. Відкрийте застосунок за адресою https:// у Safari чи Chrome.'],
     error: ['off', 'Не вдалося підтвердити офлайн-режим', 'Спробуйте перезавантажити сторінку, коли буде інтернет.'],
@@ -617,10 +644,11 @@ function aboutView(sw) {
     html: `${pageHead('Про «Автономно»', '#/res', 'Рішення є. Навіть коли немає звичного.')}
     <section class="card">
       <h2>Що це</h2>
-      <p>Офлайн-помічник для життя без світла, газу, опалення, води чи зв’язку. Обираєте проблему — і за кілька секунд бачите практичне, обґрунтоване й безпечне рішення з тим, що маєте.</p>
+      <p>Офлайн-помічник для життя без світла, газу, опалення, води чи зв’язку — і для хвилин повітряної тривоги. Обираєте проблему — і за кілька секунд бачите практичне, обґрунтоване й безпечне рішення з тим, що маєте.</p>
     </section>
     <section class="card"><h2>Офлайн-режим</h2>${pic('offline')}<div id="about-offline">${offlineDetails(sw)}</div>
-      <p class="hint">Для першого отримання застосунку потрібен інтернет. Після першого відкриття всі файли зберігаються на пристрої, і застосунок працює без мережі: рішення, калькулятори, резерв і нотатки.</p>
+      <p class="hint">Для першого встановлення потрібен інтернет. Спершу зберігається код, а ілюстрації — окремо. Перевірте нижче, що завантажено все потрібне, та протестуйте в авіарежимі.</p>
+      <button class="btn ghost" type="button" data-act="cache-pics">Зберегти всі ілюстрації для офлайну</button>
       <button class="btn ghost" type="button" data-act="recheck">${icon('i-sync')}<span>Перевірити ще раз</span></button>
     </section>
     <section class="card">
@@ -631,8 +659,13 @@ function aboutView(sw) {
       <ol><li>Відкрийте адресу застосунку в Chrome.</li><li>Меню ⋮ → «Встановити застосунок» або «Додати на головний екран».</li></ol>
     </section>
     <section class="card">
+      <h2>Поділіться із сусідами</h2>
+      <p>Застосунок безкоштовний і працює без інтернету. Що більше людей у будинку знають, що робити, то спокійніше всім.</p>
+      <button class="btn ghost" type="button" data-act="share-app">${icon('i-share')}<span>Поділитися застосунком</span></button>
+    </section>
+    <section class="card">
       <h2>Приватність</h2>
-      <p>Без реєстрації, без аналітики й трекерів. Усі дані — стан, запаси, нотатки — лише в пам’яті цього браузера. Для резервної копії скористайтеся експортом JSON.</p>
+      <p>Без реєстрації, без аналітики й трекерів. Усі дані — стан, запаси, валізка, нотатки — лише в пам’яті цього браузера. Для резервної копії скористайтеся експортом JSON у розділі «Мій резерв».</p>
     </section>
     <section class="card">
       <h2>Важливо</h2>
@@ -648,6 +681,7 @@ function aboutView(sw) {
 
 on({
   recheck: () => { app.render(); window.dispatchEvent(new Event('av-recheck')); },
+  'cache-pics': () => { window.dispatchEvent(new Event('av-cache-pics')); app.toast('Зберігаємо ілюстрації. Перевірте лічильник з інтернетом.'); },
   install: async () => {
     const ev = /** @type {any} */ (window).__avInstall;
     if (ev && ev.prompt) { ev.prompt(); try { await ev.userChoice; } catch { /* скасовано */ } }
@@ -656,6 +690,7 @@ on({
 
 export const screens = {
   resources: resourcesView,
+  reserve: reserveView,
   state: stateView,
   setup: setupView,
   setupDone: setupDoneView,
