@@ -4,7 +4,7 @@
 // порівняння (витрати, складність, ефект) → топ-3 з поясненням «чому».
 
 import { SOLUTIONS, MYTHS, BY_ID } from './solutions.js';
-import { KEY_LABELS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
+import { KEY_LABELS, COMMON_KEYS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
 import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 
 /** @typedef {import('./types').Ctx} Ctx */
@@ -15,6 +15,7 @@ import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 /** @typedef {import('./types').Rec} Rec */
 /** @typedef {import('./types').Blocked} Blocked */
 
+const COMMON = new Set(COMMON_KEYS);
 const COND = new Set(CONDITION_KEYS);
 
 /**
@@ -39,13 +40,9 @@ export function buildContext(d) {
       unavailable.add(it.key);
     }
   }
-  for (const k of unavailable) {
-    if ((d.reserve || []).some((it) => it.key === k && it.ok && it.qty > 0)) unavailable.delete(k);
-    else equip.delete(k);
-  }
+  for (const k of unavailable) if (!(d.reserve || []).some((it) => it.key === k && it.ok && it.qty > 0)) equip.delete(k);
 
   const limits = new Set(profile.limits || []);
-  const outsideSafe = state.outsideSafe === true ? true : state.outsideSafe === false ? false : null;
   const alarm = d.alarm === true;
   if (alarm) limits.add('noOutside');
   const place = alarm ? 'shelter' : profile.place || 'apartment';
@@ -58,18 +55,7 @@ export function buildContext(d) {
   const tap = state.tap === true;
   const burnerAllowed = !limits.has('noFlame') && place !== 'shelter' && place !== 'car';
   const stoveOk = equip.has('stove') && place === 'house' && !limits.has('noFlame');
-  // Джерело електрики саме по собі НЕ нагріває воду.
-  // Для 230 В від станції потрібні підтверджений AC-вихід і відомі номінальні потужності.
-  const kettleW = Number(profile.kettleW) || 0;
-  const stationW = Number(profile.stationW) || 0;
-  const fromGrid = power && equip.has('electricKettle');
-  const fromGas = gas && equip.has('gasCooker');
-  const fromStation = equip.has('station') && equip.has('stationAC') && equip.has('electricKettle')
-    && kettleW > 0 && stationW > 0 && kettleW <= stationW;
-  // Пальник лише за підтвердженого безпечного виходу надвір та наявності картриджів.
-  const fromBurner = equip.has('burner') && equip.has('cartridges') && burnerAllowed && outsideSafe === true;
-  const electricHeatSource = fromGrid || fromStation;
-  const heatSource = electricHeatSource || fromGas || fromBurner || stoveOk;
+  const heatSource = power || gas || equip.has('station') || (equip.has('burner') && burnerAllowed) || stoveOk;
   const waterL = numOrNull(state.waterL) ?? (hasReserveWater ? reserveWater : null);
 
   return {
@@ -84,27 +70,20 @@ export function buildContext(d) {
     vulnerable: limits.has('vulnerable') || kids > 0 || elderly > 0,
     pets: clampInt(state.pets, 0, 50, 0),
     petKg: Math.max(0, Number(state.petKg) || 0),
-    power, gas, tap, outsideSafe,
+    power, gas, tap,
     waterL,
     batteryPct: numOrNull(state.batteryPct),
     roomC: alarm ? null : numOrNull(state.roomC),
-    heatSource, electricHeatSource,
+    heatSource,
     burnerAllowed,
     alarm,
   };
 }
 
-/** Три стани конкретного предмета: підтверджено / недоступно / невідомо.
- * @param {Ctx} ctx @param {string} k
- * @returns {'available'|'unavailable'|'unknown'}
- */
-export function resourceStatus(ctx, k) {
-  if (ctx.unavailable.has(k)) return 'unavailable';
-  return ctx.equip.has(k) ? 'available' : 'unknown';
-}
-
-/** Чи доступний ресурс/умова. За замовчуванням невідоме не означає «є».
- * @param {Ctx} ctx @param {string} k
+/**
+ * Чи доступний ресурс/умова.
+ * @param {Ctx} ctx
+ * @param {string} k
  */
 export function has(ctx, k) {
   switch (k) {
@@ -112,9 +91,9 @@ export function has(ctx, k) {
     case 'gas': return ctx.gas;
     case 'tap': return ctx.tap;
     case 'heatSource': return ctx.heatSource;
-    case 'electricHeatSource': return ctx.electricHeatSource;
     default:
-      return resourceStatus(ctx, k) === 'available';
+      if (COMMON.has(k)) return !ctx.unavailable.has(k);
+      return ctx.equip.has(k);
   }
 }
 
@@ -136,7 +115,7 @@ export function safetyGate(sol, ctx) {
   if (sol.uses.combustion && ctx.place === 'shelter' && rule !== 'ok') return { ok: false, why: 'Горіння в укритті чи підвалі — ризик отруєння чадним газом', level: 'danger' };
   if (sol.uses.flame && ctx.limits.has('noFlame')) return { ok: false, why: 'Полум’я заборонене вашими обмеженнями', level: 'danger' };
   const out = sol.uses.outside === true || (sol.uses.outside === 'unlessCar' && ctx.place !== 'car');
-  if (out && (ctx.limits.has('noOutside') || ctx.outsideSafe !== true)) return { ok: false, why: ctx.outsideSafe === null ? 'Безпеку виходу надвір не підтверджено: перевірте «Мій стан сьогодні»' : 'Потрібно виходити надвір, а зараз це небезпечно', level: 'caution' };
+  if (out && ctx.limits.has('noOutside')) return { ok: false, why: 'Потрібно виходити надвір, а зараз це небезпечно', level: 'caution' };
   return { ok: true, level: rule === 'caution' ? 'caution' : sol.risk };
 }
 
@@ -150,13 +129,13 @@ export function feasibility(sol, ctx) {
   /** @type {string[]} */ const conditionMissing = [];
   /** @type {string[]} */ const owned = [];
   for (const k of sol.needs) {
-    if (has(ctx, k)) { if (!COND.has(k)) owned.push(k); }
+    if (has(ctx, k)) { if (!COND.has(k) && !COMMON.has(k)) owned.push(k); }
     else if (COND.has(k)) conditionMissing.push(k);
     else missing.push(k);
   }
   for (const g of sol.needsAny || []) {
     const hit = g.find((k) => has(ctx, k));
-    if (hit) { if (!COND.has(hit)) owned.push(hit); continue; }
+    if (hit) { if (!COND.has(hit) && !COMMON.has(hit)) owned.push(hit); continue; }
     const buyable = g.filter((k) => !COND.has(k));
     if (buyable.length) missing.push(buyable.join('|'));
     else conditionMissing.push(g.join('|'));
@@ -233,7 +212,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   if (f.owned.length) { s += 10; reasons.push(`Використовує те, що є: ${uniq(f.owned).map(keyLabel).join(', ')}`); }
   if (f.costNow === 0) { s += 6; if (!f.owned.length) reasons.push('Без витрат'); }
   else s -= Math.min(14, Math.log10(f.costNow) * 3);
-  if (!f.ok && f.missing.length) warnings.push(`Потрібно підтвердити наявність або придбати: ${f.missing.map(groupLabel).join('; ')} (${costBand(sol.cost)})${ctx.limits.has('noOutside') ? ', коли це буде безпечно' : ''}`);
+  if (!f.ok && f.missing.length) warnings.push(`Потрібно придбати: ${f.missing.map(groupLabel).join('; ')} (${costBand(sol.cost)})${ctx.limits.has('noOutside') ? ', коли це буде безпечно' : ''}`);
 
   // Складність
   s -= (sol.difficulty - 1) * 3;
@@ -263,7 +242,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   }
   if (ctx.vulnerable && sol.vulnerableRisk) { s -= 6; warnings.push(sol.vulnerableRisk); }
   const needsHeat = (sol.needsAny || []).some((g) => g.includes('heatSource'));
-  if (needsHeat && !ctx.power && !ctx.gas && ctx.equip.has('burner') && ctx.equip.has('cartridges') && ctx.outsideSafe === true && ctx.burnerAllowed) {
+  if (needsHeat && !ctx.power && !ctx.gas && !ctx.equip.has('station') && ctx.equip.has('burner') && ctx.burnerAllowed) {
     s -= 6;
     warnings.push('Ваше джерело тепла — пальник: лише коротко, з провітрюванням і детектором CO');
   }

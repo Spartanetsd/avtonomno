@@ -8,9 +8,10 @@ import { BY_ID } from './solutions.js';
 import { EMERGENCY } from './safety.js';
 import {
   BAG, BAG_SOURCES, PREP, PREP_SOURCES, ALARM_STEPS, ALARM_SOURCES, ALARM_FOLDS, FIRST_STEPS, FIRST_SOURCES,
-  WHILE_BLOCKS, BLOCKED, AFTER_STEPS, AFTER_SOURCES, PRAISE, SHARE_TEXT,
-  itemsFor, progress, applies, elapsedMin, durText, daysSince, bagDue,
+  WHILE_BLOCKS, BLOCKED, AFTER_STEPS, AFTER_SOURCES, PRAISE, SHARE_TEXT, SHEET_RULES,
+  itemsFor, progress, applies, elapsedMin, durText, daysSince, bagDue, sheetText,
 } from './shelter.js';
+import { qrSvg } from './qr.js';
 import { app, on, esc, icon, note, pageHead, pic, sourcesList, bar, plural } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
@@ -47,6 +48,22 @@ function foldHtml(f, open = false) {
   </details>`;
 }
 
+/**
+ * «Ваш план»: власне укриття й місце зустрічі — видно першим під час тривоги.
+ * @param {{shelter:string, meet:string}} plan
+ */
+function planCard(plan) {
+  if (!plan.shelter && !plan.meet) {
+    return `<a class="card plan empty-plan" href="#/prep">${icon('i-shelter')}<span><b>Вкажіть своє укриття</b><span class="muted">Адреса й місце зустрічі родини з’являться тут — саме тоді, коли знадобляться.</span></span>${icon('i-chev', 'end')}</a>`;
+  }
+  return `<section class="card plan" aria-labelledby="plan-h">
+    <h2 id="plan-h">Ваш план</h2>
+    ${plan.shelter ? `<p class="plan-l">${icon('i-shelter')}<span><span class="muted">Укриття</span><b>${esc(plan.shelter)}</b></span></p>` : ''}
+    ${plan.meet ? `<p class="plan-l">${icon('i-home')}<span><span class="muted">Зустрічаємося, якщо немає зв’язку</span><b>${esc(plan.meet)}</b></span></p>` : ''}
+    <a class="note-a" href="#/prep">Змінити${icon('i-chev')}</a>
+  </section>`;
+}
+
 /** @param {string[]} items */
 function numbered(items) {
   return `<ol class="now-list">${items.map((t, i) => `<li><span class="n" aria-hidden="true">${i + 1}</span><span>${esc(t)}</span></li>`).join('')}</ol>`;
@@ -77,12 +94,15 @@ function alarmView() {
     title: 'Укриття',
     tab: 'shelter',
     html: `${pageHead('Повітряна тривога', '', 'Почули сирену — одразу в укриття')}
+    ${planCard(d.plan)}
     <section class="card sh-go" aria-labelledby="go-h">
       <h2 id="go-h">Що робити зараз</h2>
       ${numbered(ALARM_STEPS)}
     </section>
-    <button class="btn primary sh-big" type="button" data-act="sh-start">${icon('i-shelter')}<span>Я в укритті</span></button>
-    <p class="hint center">Таймер покаже час перебування в укритті, а підбір рішень врахує, що ви в укритті.${cnt ? ` Ви вчасно ховалися вже ${cnt} ${plural(cnt, 'раз', 'рази', 'разів')} — так тримати.` : ''}</p>
+    <div class="row-btns sticky-actions">
+      <button class="btn primary sh-big" type="button" data-act="sh-start">${icon('i-shelter')}<span>Я в укритті</span></button>
+    </div>
+    <p class="hint center">Таймер покаже, скільки ви в безпеці, а підбір рішень врахує, що ви в укритті.${cnt ? ` Ви вчасно ховалися вже ${cnt} ${plural(cnt, 'раз', 'рази', 'разів')} — так тримати.` : ''}</p>
     ${pic('shelter')}
     <h2 class="h2">Якщо до укриття не дістатися</h2>
     ${ALARM_FOLDS.map((f) => foldHtml(f)).join('')}
@@ -108,7 +128,7 @@ function inView() {
       <p class="sh-t"><span class="sh-live-t short">${esc(durText(min, true))}</span></p>
       <p class="praise">${esc(PRAISE.start)}</p>
     </section>
-    ${min >= 720 ? note('info', 'Режим укриття ввімкнено вже давно', 'Якщо ви вже не в укритті, завершіть свій запис лише після перевірки офіційних повідомлень. Цей застосунок не відстежує тривоги.') : ''}
+    ${min >= 720 ? note('info', 'Режим укриття ввімкнено вже давно', 'Якщо ви вже вдома, натисніть «Відбій тривоги» внизу: тоді поради знову стануть домашніми.') : ''}
     <h2 class="h2">Перші хвилини</h2>
     ${numbered(FIRST_STEPS)}
     <button class="btn ghost wide" type="button" data-act="sh-share" data-v="in">${icon('i-share')}<span>Повідомити рідних</span></button>
@@ -117,10 +137,10 @@ function inView() {
     <h2 class="h2">Поки сидимо</h2>
     ${WHILE_BLOCKS.map((b) => foldHtml(b, !!b.when && applies(b, c))).join('')}
     ${foldHtml(BLOCKED)}
+    <div class="rows"><a class="row" href="#/share">${icon('i-share')}<span>Показати сусідам QR-код застосунку</span>${icon('i-chev', 'end')}</a></div>
     <section class="card sos" aria-labelledby="sos-h"><h2 id="sos-h">Екстрені номери</h2>${callsHtml(['112', '101', '103'])}</section>
-    ${note('caution', 'Перевірте офіційні повідомлення', 'Застосунок працює офлайн і не знає, чи триває тривога. Не виходьте лише за статусом на цьому екрані.')}
     <div class="row-btns sticky-actions">
-      <button class="btn primary" type="button" data-act="sh-clear">${icon('i-check')}<span>Я перевірив(ла) офіційний відбій</span></button>
+      <button class="btn primary" type="button" data-act="sh-clear">${icon('i-check')}<span>Відбій тривоги</span></button>
     </div>`,
   };
 }
@@ -133,12 +153,12 @@ function afterView() {
   const sh = store.get().shelter;
   const min = elapsedMin(sh.since || Date.now(), sh.after || Date.now());
   return {
-    title: 'Запис після відбою',
+    title: 'Відбій',
     tab: 'shelter',
-    html: `${pageHead('Ви підтвердили відбій', '', `Ви були в укритті ${durText(min)}. Застосунок не перевіряє офіційний статус.`)}
-    ${pic('after')}
+    html: `${pageHead('Відбій тривоги', '', `Ви були в укритті ${durText(min)}`)}
+    ${pic('after', { cap: false })}
     <p class="praise big">${esc(PRAISE.after)}</p>
-    ${note('caution', 'Статус — ваш запис', 'Цей екран не перевіряє офіційні сповіщення й не гарантує безпечного виходу. Перш ніж залишати укриття, перевіряйте поточні загрози.') }<h2 class="h2">Що зробити після підтвердженого відбою</h2>
+    <h2 class="h2">Що зробити після відбою</h2>
     <ol class="steps">${AFTER_STEPS.map((t, i) => `<li><button type="button" class="step" data-act="af-step" data-i="${i}" aria-pressed="${afterDone.has(i)}"><span class="box" aria-hidden="true">${icon('i-check')}</span><span class="num">${i + 1}</span><span class="txt">${esc(t)}</span></button></li>`).join('')}</ol>
     <button class="btn ghost wide" type="button" data-act="sh-share" data-v="after">${icon('i-share')}<span>Повідомити рідних, що все гаразд</span></button>
     <section class="sec"><h2>Джерела</h2>${sourcesList(AFTER_SOURCES)}</section>
@@ -208,6 +228,12 @@ function prepView() {
     tab: 'res',
     html: `${pageHead('Підготувати укриття', '#/res', 'Поки спокійно: найближчі укриття, облаштований підвал і домовленості з сусідами')}
     ${pic('prep')}
+    <section class="card plan-edit" aria-labelledby="pe-h">
+      <h2 id="pe-h">Ваш план на тривогу</h2>
+      <div class="field"><label for="plan-shelter">Моє укриття</label><input id="plan-shelter" type="text" maxlength="120" autocomplete="off" enterkeyhint="done" placeholder="Напр.: підвал 2-го під’їзду, вхід з двору" value="${esc(d.plan.shelter)}"></div>
+      <div class="field"><label for="plan-meet">Де зустрічаємося, якщо немає зв’язку</label><input id="plan-meet" type="text" maxlength="120" autocomplete="off" enterkeyhint="done" placeholder="Напр.: біля школи №5" value="${esc(d.plan.meet)}"></div>
+      <p class="hint">Під час тривоги це буде першим на екрані «Укриття» й на роздрукованій пам’ятці.</p>
+    </section>
     <section class="card prog" id="prep-prog">${progHtml('prep', progress(PREP, d.prep, c), null)}</section>
     ${itemsFor(PREP, c).map((g) => checkGroup('prep', g, set)).join('')}
     <div class="rows">
@@ -216,6 +242,15 @@ function prepView() {
       <a class="row" href="#/shelter">${icon('i-shelter')}<span>Що робити під час тривоги</span>${icon('i-chev', 'end')}</a>
     </div>
     <section class="sec"><h2>Джерела</h2>${sourcesList(PREP_SOURCES)}</section>`,
+    after() {
+      for (const [id, key] of /** @type {const} */ ([['plan-shelter', 'shelter'], ['plan-meet', 'meet']])) {
+        const inp = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+        if (!inp) continue;
+        inp.addEventListener('input', () => store.update((dd) => { dd.plan[key] = inp.value.slice(0, 120); }));
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+        inp.addEventListener('blur', () => { const t = inp.value.trim(); if (t !== inp.value) { inp.value = t; store.update((dd) => { dd.plan[key] = t; }); } });
+      }
+    },
   };
 }
 
@@ -245,40 +280,65 @@ function refreshProg(kind) {
 
 /* ───────────── Пам’ятка для друку ───────────── */
 
-export const SHEET_RULES = [
-  'Сідайте біля несучих стін, подалі від входу; під себе — каремат чи ковдру.',
-  'Не паліть, не запалюйте свічок і вогню; не шуміть і не ходіть без потреби.',
-  'Діти, літні й хворі — ближче до вентиляції.',
-  'Тварини — на повідку або в переносці, під наглядом.',
-  'Виходити — після відбою або в разі пожежі, загазованості чи нестачі повітря.',
-];
-
 function appUrl() {
   return location.href.split('#')[0];
 }
 
+/** QR-код адреси застосунку; якщо адреса задовга — нічого. @param {string} label */
+function appQr(label) {
+  try { return qrSvg(appUrl(), label); } catch { return ''; }
+}
+
 /** @returns {View} */
 function sheetView() {
+  const plan = store.get().plan;
+  const fill = (/** @type {string} */ v) => (v ? `<b class="ln-v">${esc(v)}</b>` : '<span class="ln"></span>');
   return {
     title: 'Пам’ятка для укриття',
     tab: 'res',
     html: `${pageHead('Пам’ятка для укриття', '#/res', 'Роздрукуйте й повісьте в укритті вашого будинку')}
     <div class="row-btns noprint">
       <button class="btn primary" type="button" data-act="print">${icon('i-print')}<span>Друкувати</span></button>
-      <button class="btn ghost" type="button" data-act="share-app">${icon('i-share')}<span>Поділитися</span></button>
+      <button class="btn ghost" type="button" data-act="share-sheet">${icon('i-share')}<span>Надіслати текстом</span></button>
     </div>
+    <p class="hint noprint">Текстом — щоб переслати в чат будинку чи ОСББ. На аркуші є QR-код: сусіди відкриють застосунок камерою телефона.</p>
     <article class="sheet" aria-label="Пам’ятка для друку">
-      <h2>Укриття: що робити</h2>
-      <p class="sheet-fill">Адреса укриття: <span class="ln"></span></p>
-      <p class="sheet-fill">Ключі — у кого: <span class="ln"></span></p>
-      <p class="sheet-fill">Телефон: <span class="ln"></span></p>
+      <div class="sheet-head">
+        <div class="sheet-hl">
+          <h2>Укриття: що робити</h2>
+          <p class="sheet-fill">Адреса укриття: ${fill(plan.shelter)}</p>
+          <p class="sheet-fill">Ключі — у кого: <span class="ln"></span></p>
+          <p class="sheet-fill">Телефон: <span class="ln"></span></p>
+        </div>
+        <figure class="sheet-qr">${appQr('QR-код: адреса застосунку «Автономно»')}<figcaption>Застосунок «Автономно» — скануйте камерою</figcaption></figure>
+      </div>
       <section><h3>Екстрені номери</h3><ul class="sheet-nums">${EMERGENCY.map((e) => `<li><b>${e.num}</b> ${esc(e.label)}</li>`).join('')}</ul></section>
       <section><h3>Під час тривоги</h3><ol>${ALARM_STEPS.map((t) => `<li>${esc(t)}</li>`).join('')}</ol></section>
       <section><h3>В укритті</h3><ul>${SHEET_RULES.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>
       <section><h3>Якщо вихід завалено</h3><ul>${BLOCKED.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>
       <section><h3>Після відбою</h3><ul>${AFTER_STEPS.slice(0, 4).map((t) => `<li>${esc(t)}</li>`).join('')}</ul></section>
-      <p class="sheet-foot">За рекомендаціями ДСНС, МОН, ЮНІСЕФ і Держпродспоживслужби. Офлайн-помічник «Автономно»: ${esc(appUrl())}</p>
+      <p class="sheet-foot">За рекомендаціями ДСНС, МОН, ЮНІСЕФ і Держпродспоживслужби. Офлайн-помічник «Автономно» працює без інтернету: ${esc(appUrl())}</p>
     </article>`,
+  };
+}
+
+/* ───────────── Поділитися: QR-код на екрані ───────────── */
+
+/** @returns {View} */
+function shareView() {
+  const qr = appQr('QR-код: відкрити застосунок «Автономно»');
+  return {
+    title: 'Поділитися',
+    tab: 'res',
+    html: `${pageHead('Поділитися з сусідами', '#/res', 'Покажіть код — сусід відкриє «Автономно» камерою свого телефона')}
+    ${qr ? `<div class="qr-card">${qr}</div>` : ''}
+    <p class="qr-url">${esc(appUrl())}</p>
+    <div class="row-btns">
+      <button class="btn primary" type="button" data-act="share-app">${icon('i-share')}<span>Надіслати посилання</span></button>
+      <button class="btn ghost" type="button" data-act="share-sheet">${icon('i-list')}<span>Пам’ятка текстом</span></button>
+    </div>
+    <p class="hint">Камера не бачить код — збільште яскравість екрана. Щоб застосунок працював без інтернету, сусідові треба один раз відкрити його з мережею й дочекатися напису «Готово до роботи офлайн».</p>
+    <div class="rows"><a class="row" href="#/sheet">${icon('i-print')}<span>Пам’ятка з QR-кодом — роздрукувати для під’їзду</span>${icon('i-chev', 'end')}</a></div>`,
   };
 }
 
@@ -322,9 +382,9 @@ export function updateChip(path) {
   chip.hidden = !show;
   if (!show) return;
   chip.innerHTML = sh.after != null
-    ? `${icon('i-check')}<span>Ваш запис про відбій</span>`
+    ? `${icon('i-check')}<span>Відбій</span>`
     : `<i class="live-dot" aria-hidden="true"></i><span>В укритті · ${esc(durText(min, true))}</span>`;
-  chip.setAttribute('aria-label', sh.after != null ? 'Ви вручну підтвердили відбій: кроки після виходу' : `Ви в укритті ${durText(min)}. Відкрити режим укриття`);
+  chip.setAttribute('aria-label', sh.after != null ? 'Відбій тривоги: кроки після виходу' : `Ви в укритті ${durText(min)}. Відкрити режим укриття`);
 }
 
 /* ───────────── Поділитися ───────────── */
@@ -360,7 +420,6 @@ on({
     window.scrollTo(0, 0);
   },
   'sh-clear': () => {
-    if (!confirm('Ви самостійно перевірили ОФІЦІЙНИЙ відбій? «Автономно» не отримує повідомлень про тривоги й не підтверджує безпеку виходу.')) return;
     store.update((d) => { if (d.shelter.since == null) d.shelter.since = Date.now(); d.shelter.after = Date.now(); });
     afterDone.clear();
     app.render();
@@ -391,6 +450,7 @@ on({
   },
   'sh-share': (el) => { shareText(el.dataset.v === 'after' ? SHARE_TEXT.after : SHARE_TEXT.in); },
   'share-app': () => { shareApp(); },
+  'share-sheet': () => { shareText(sheetText(appUrl())); },
   print: () => window.print(),
   'af-step': (el) => {
     const i = Number(el.dataset.i);
@@ -411,4 +471,5 @@ export const shelterScreens = {
   bag: bagView,
   prep: prepView,
   sheet: sheetView,
+  share: shareView,
 };

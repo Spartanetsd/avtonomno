@@ -97,18 +97,12 @@ export interface Profile {
   budget: number;
   setupDone: boolean;
   setupDismissed: boolean;
-  /** Номінальна безперервна потужність 230 В AC виходу станції, Вт */
-  stationW: number | null;
-  /** Номінальна потужність електрочайника/нагрівача 230 В, Вт */
-  kettleW: number | null;
 }
 
 export interface DayState {
   power: boolean | null;
   gas: boolean | null;
   tap: boolean | null;
-  /** Чи безпечно зараз виходити надвір? Невідомо за замовчуванням. */
-  outsideSafe: boolean | null;
   waterL: number | null;
   batteryPct: number | null;
   roomC: number | null;
@@ -132,7 +126,7 @@ export interface Settings {
 export interface ShelterLog {
   /** Коли ввімкнули режим; null — режим вимкнено */
   since: number | null;
-  /** Коли користувач підтвердив зовнішню інформацію про відбій; це не офіційний сигнал */
+  /** Коли натиснули «Відбій»; поки не null — показуємо кроки після відбою */
   after: number | null;
   /** Скільки разів вчасно сховалися */
   count: number;
@@ -158,6 +152,8 @@ export interface AppData {
   /** Позначені пункти підготовки укриття */
   prep: string[];
   shelter: ShelterLog;
+  /** Особистий план на тривогу: де укриття й де зустрічається родина без зв’язку */
+  plan: { shelter: string; meet: string };
 }
 
 export interface Ctx {
@@ -178,12 +174,10 @@ export interface Ctx {
   power: boolean;
   gas: boolean;
   tap: boolean;
-  outsideSafe: boolean | null;
   waterL: number | null;
   batteryPct: number | null;
   roomC: number | null;
   heatSource: boolean;
-  electricHeatSource: boolean;
   burnerAllowed: boolean;
   /** Режим «Я в укритті»: місце — укриття, надвір не можна, температура вдома не враховується */
   alarm: boolean;

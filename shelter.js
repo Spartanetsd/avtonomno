@@ -3,6 +3,7 @@
 // Тексти спираються на офіційні рекомендації (ключі джерел — у data.js → SOURCES).
 
 import { reserveInsight, norm } from './engine.js';
+import { EMERGENCY } from './safety.js';
 import { plural } from './ui.js';
 
 /** @typedef {import('./types').Ctx} Ctx */
@@ -195,6 +196,42 @@ export const AFTER_STEPS = [
   'Поповніть валізку: вода, заряд, ліки.',
 ];
 export const AFTER_SOURCES = ['dsnsAfter', 'kyivShelter'];
+
+/** Короткі правила для пам’ятки на стіні укриття. */
+export const SHEET_RULES = [
+  'Сідайте біля несучих стін, подалі від входу; під себе — каремат чи ковдру.',
+  'Не паліть, не запалюйте свічок і вогню; не шуміть і не ходіть без потреби.',
+  'Діти, літні й хворі — ближче до вентиляції.',
+  'Тварини — на повідку або в переносці, під наглядом.',
+  'Виходити — після відбою або в разі пожежі, загазованості чи нестачі повітря.',
+];
+
+/**
+ * Пам’ятка простим текстом — для чату будинку чи ОСББ.
+ * @param {string} url адреса застосунку
+ */
+export function sheetText(url) {
+  const list = (/** @type {string[]} */ a, /** @type {boolean} */ num) => a.map((t, i) => `${num ? `${i + 1}.` : '•'} ${t}`).join('\n');
+  return [
+    'УКРИТТЯ: ЩО РОБИТИ',
+    '',
+    `Екстрені номери: ${EMERGENCY.map((e) => `${e.num} — ${e.label[0].toLowerCase()}${e.label.slice(1)}`).join('; ')}.`,
+    '',
+    'Під час тривоги:',
+    list(ALARM_STEPS, true),
+    '',
+    'В укритті:',
+    list(SHEET_RULES, false),
+    '',
+    'Якщо вихід завалено:',
+    list(BLOCKED.items, false),
+    '',
+    'Після відбою:',
+    list(AFTER_STEPS.slice(0, 4), false),
+    '',
+    `Офлайн-помічник «Автономно» — працює без інтернету: ${url}`,
+  ].join('\n');
+}
 
 export const PRAISE = {
   start: 'Ви вчасно сховалися. Це найважливіше.',

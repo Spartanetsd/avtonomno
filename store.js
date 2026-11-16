@@ -8,14 +8,14 @@ import { RESERVE_CATALOG, RESERVE_CATS, EQUIP, LIMITS, PLACES, DURATIONS, SEASON
 /** @typedef {import('./types').ReserveItem} ReserveItem */
 
 export const STORE_KEY = 'avtonomno.data';
-export const SCHEMA = 3;
+export const SCHEMA = 2;
 
 /** @returns {AppData} */
 export function defaults() {
   return {
     v: SCHEMA,
-    profile: { place: null, equip: [], limits: [], duration: 'd3', budget: 0, setupDone: false, setupDismissed: false, stationW: null, kettleW: null },
-    state: { power: null, gas: null, tap: null, outsideSafe: null, waterL: null, batteryPct: null, roomC: null, adults: 1, kids: 0, elderly: 0, pets: 0, petKg: 0, updated: null },
+    profile: { place: null, equip: [], limits: [], duration: 'd3', budget: 0, setupDone: false, setupDismissed: false },
+    state: { power: null, gas: null, tap: null, waterL: null, batteryPct: null, roomC: null, adults: 1, kids: 0, elderly: 0, pets: 0, petKg: 0, updated: null },
     reserve: [],
     favs: [],
     notes: '',
@@ -25,6 +25,7 @@ export function defaults() {
     bagAt: null,
     prep: [],
     shelter: { since: null, after: null, count: 0, minutes: 0, last: null },
+    plan: { shelter: '', meet: '' },
   };
 }
 
@@ -101,14 +102,11 @@ export function cleanData(raw) {
   d.profile.budget = numIn(p.budget, 0, 1000000, 0) ?? 0;
   d.profile.setupDone = p.setupDone === true;
   d.profile.setupDismissed = p.setupDismissed === true;
-  d.profile.stationW = numIn(p.stationW, 1, 20000, null);
-  d.profile.kettleW = numIn(p.kettleW, 1, 10000, null);
 
   const s = raw.state || {};
   d.state.power = triBool(s.power);
   d.state.gas = triBool(s.gas);
   d.state.tap = triBool(s.tap);
-  d.state.outsideSafe = triBool(s.outsideSafe);
   d.state.waterL = numIn(s.waterL, 0, 100000, null);
   d.state.batteryPct = numIn(s.batteryPct, 0, 100, null);
   d.state.roomC = numIn(s.roomC, -40, 60, null);
@@ -122,10 +120,7 @@ export function cleanData(raw) {
   d.reserve = Array.isArray(raw.reserve) ? raw.reserve.map(cleanItem).filter(Boolean).slice(0, 500) : [];
   d.favs = Array.isArray(raw.favs) ? [...new Set(raw.favs.filter((x) => typeof x === 'string').map((x) => x.slice(0, 40)))].slice(0, 200) : [];
   d.notes = str(raw.notes, 4000);
-  try {
-    const c = raw.calc && typeof raw.calc === 'object' && !Array.isArray(raw.calc) ? JSON.stringify(raw.calc) : '{}';
-    d.calc = c.length <= 100000 ? JSON.parse(c) : {};
-  } catch { d.calc = {}; }
+  d.calc = raw.calc && typeof raw.calc === 'object' ? JSON.parse(JSON.stringify(raw.calc)) : {};
 
   const st = raw.settings || {};
   d.settings.theme = st.theme === 'light' || st.theme === 'dark' || st.theme === 'black' ? st.theme : 'auto';
@@ -142,6 +137,9 @@ export function cleanData(raw) {
   d.shelter.count = Math.round(numIn(sh.count, 0, 1000000, 0) ?? 0);
   d.shelter.minutes = Math.round(numIn(sh.minutes, 0, 100000000, 0) ?? 0);
   d.shelter.last = ms(sh.last);
+  const pl = raw.plan || {};
+  d.plan.shelter = typeof pl.shelter === 'string' ? pl.shelter.slice(0, 120) : '';
+  d.plan.meet = typeof pl.meet === 'string' ? pl.meet.slice(0, 120) : '';
   return d;
 }
 
@@ -154,8 +152,7 @@ export function migrate(raw) {
   const v = Number(raw.v) || 1;
   // v1 → v2: додано тривожну валізку, підготовку укриття й режим «Я в укритті».
   // Нові поля заповнює cleanData типовими значеннями, старі дані не змінюються.
-  // v2 → v3: безпечний вихід, явний нагрівач і повна резервна копія.
-  // Відсутні поля отримають консервативні значення у cleanData().
+  // Майбутні зміни додаються тут кроками: if (v < 3) { ... }
   return { ...raw, v: Math.max(v, SCHEMA) };
 }
 
@@ -264,10 +261,8 @@ export function exportData(d) {
     bag: d.bag,
     bagAt: d.bagAt,
     prep: d.prep,
-    settings: d.settings,
-    calc: d.calc,
-    // Історія зберігається; активна тривога навмисно НЕ відновлюється на іншому пристрої.
-    shelter: { ...d.shelter, since: null, after: null },
+    plan: d.plan,
+    shelter: { count: d.shelter.count, minutes: d.shelter.minutes, last: d.shelter.last },
   };
 }
 
@@ -278,7 +273,6 @@ export function exportData(d) {
  * @returns {{ok:true, data:AppData, counts:{reserve:number, favs:number}} | {ok:false, error:string}}
  */
 export function importData(text, current) {
-  if (text.length > 2 * 1024 * 1024) return { ok: false, error: 'Файл завеликий (понад 2 МБ).' };
   let raw;
   try {
     raw = JSON.parse(text);
@@ -301,9 +295,11 @@ export function importData(text, current) {
     bag: Array.isArray(raw.bag) ? raw.bag : current.bag,
     bagAt: raw.bagAt != null ? raw.bagAt : current.bagAt,
     prep: Array.isArray(raw.prep) ? raw.prep : current.prep,
-    settings: raw.settings && typeof raw.settings === 'object' ? { ...current.settings, ...raw.settings } : current.settings,
-    calc: raw.calc && typeof raw.calc === 'object' && !Array.isArray(raw.calc) ? raw.calc : current.calc,
-    shelter: raw.shelter && typeof raw.shelter === 'object' ? { ...current.shelter, ...raw.shelter, since: null, after: null } : current.shelter,
+    plan: raw.plan && typeof raw.plan === 'object' ? { ...current.plan, ...raw.plan } : current.plan,
+    // Лічильник укриттів — з файлу, а поточний режим «Я в укритті» лишається як є
+    shelter: raw.shelter && typeof raw.shelter === 'object'
+      ? { ...current.shelter, count: raw.shelter.count ?? current.shelter.count, minutes: raw.shelter.minutes ?? current.shelter.minutes, last: raw.shelter.last ?? current.shelter.last }
+      : current.shelter,
   });
   return { ok: true, data: next, counts: { reserve: next.reserve.length, favs: next.favs.length } };
 }

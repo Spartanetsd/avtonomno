@@ -1,13 +1,20 @@
 // @ts-check
 // Екрани калькуляторів і «Пояснює фізика».
+// Введення без стрибків: відповідь — у липкому рядку вгорі, сторінка не перебудовується під час набору,
+// пресети змінюють значення на місці, блок результату не стає нижчим, поки людина вводить.
 
 import * as store from './store.js';
-import { battery, waterHeat, waterNeeds, energyPlan, fmt, fmtHours, K_PRESETS, WATER_PRESETS, ENERGY_CATS, DEVICE_PRESETS, num } from './calc.js';
+import { battery, waterHeat, waterNeeds, energyPlan, fmt, fmtHours, daysText, K_PRESETS, WATER_PRESETS, ENERGY_CATS, DEVICE_PRESETS, num } from './calc.js';
 import { PHYSICS, PHYSICS_BY_ID, jouleWh, faradayHours, carnotEta, fourierRelative, newtonTemp, NEWTON_VESSELS } from './physics.js';
 import { SOLUTIONS } from './solutions.js';
-import { app, on, esc, icon, note, pageHead, chip, plural, pic } from './ui.js';
+import { app, on, esc, icon, note, pageHead, chip, pic, tidyNum, numFieldState, bindNumField, keepInPlace } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
+/**
+ * Відповідь калькулятора: підпис, число й короткий підсумок для живого рядка, деталі — під формою.
+ * bad — поля, які суперечать одне одному (наприклад, бажана температура не вища за початкову).
+ * @typedef {{ok:boolean, label:string, value:string, sub:string, html:string, msg?:string, tone?:'warn', bad?:string[]}} CalcOut
+ */
 
 /* ───────────── Збережені значення ───────────── */
 
@@ -32,6 +39,8 @@ const HEATER_CHIPS = [
   { label: 'Індукція 1000 Вт', w: '1000', eff: '0,8' },
   { label: 'Електроплитка 1000 Вт', w: '1000', eff: '0,6' },
 ];
+
+const VOLT_HINT = 'Для павербанків — 3,6–3,7 В (напруга елементів, не 5 В).';
 
 /** @returns {Record<string, any>} */
 function defaultsFor(/** @type {string} */ name) {
@@ -64,12 +73,32 @@ function setCalc(name, patch) {
 
 /* ───────────── Поля ───────────── */
 
-/** @param {string} calc @param {string} key @param {string} label @param {string} value @param {string} [unit] @param {string} [hint] */
-function field(calc, key, label, value, unit = '', hint = '') {
+/**
+ * Правило поля: межі для миттєвої підказки, ціле число, необов’язкове, частка чи відсотки.
+ * @typedef {{min?:number, max?:number, int?:boolean, opt?:boolean, pct?:boolean}} Rule
+ */
+
+/** @param {Rule} r */
+function ruleAttrs(r) {
+  return [
+    r.min != null ? `data-min="${r.min}"` : '',
+    r.max != null ? `data-max="${r.max}"` : '',
+    r.int ? 'data-int="1"' : '',
+    r.opt ? 'data-opt="1"' : '',
+    r.pct ? 'data-pct="1"' : '',
+  ].filter(Boolean).join(' ');
+}
+
+/**
+ * Числове поле калькулятора. Цілі числа — цифрова клавіатура, дробові — з комою.
+ * @param {string} calc @param {string} key @param {string} label @param {string} value
+ * @param {string} [unit] @param {string} [hint] @param {Rule} [rule]
+ */
+function field(calc, key, label, value, unit = '', hint = '', rule = {}) {
   const id = `c-${calc}-${key}`;
-  return `<div class="field"><label for="${id}">${esc(label)}</label>
-    <div class="inrow"><input id="${id}" type="text" inputmode="decimal" autocomplete="off" data-calc="${calc}" data-k="${key}" value="${esc(value)}">${unit ? `<span class="unit">${esc(unit)}</span>` : ''}</div>
-    ${hint ? `<p class="hint">${esc(hint)}</p>` : ''}</div>`;
+  return `<div class="field" id="f-${calc}-${key}"><label for="${id}">${esc(label)}</label>
+    <div class="inrow"><input id="${id}" type="text" inputmode="${rule.int ? 'numeric' : 'decimal'}" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" data-calc="${calc}" data-k="${key}" ${ruleAttrs(rule)} value="${esc(value)}"${hint ? ` aria-describedby="${id}-h"` : ''}>${unit ? `<span class="unit">${esc(unit)}</span>` : ''}</div>
+    ${hint ? `<p class="hint" id="${id}-h">${esc(hint)}</p>` : ''}</div>`;
 }
 
 /** @param {{level:string, text:string}[]} ws */
@@ -79,12 +108,137 @@ function warnHtml(ws) {
 
 /** @param {string[]} errors */
 function errHtml(errors) {
-  return `<div class="note caution" role="alert"><div class="note-h">${icon('i-warn')}<span class="note-l">Перевірте дані</span></div><ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+  return `<div class="note caution"><div class="note-h">${icon('i-warn')}<span class="note-l">Перевірте дані</span></div><ul>${errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
 }
 
 /** @param {string[]} steps @param {string} [extra] */
 function howHtml(steps, extra = '') {
   return `<details class="card fold how"><summary>${icon('i-calc')}<span>Як це пораховано?</span></summary><ol>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>${extra}</details>`;
+}
+
+/** Порожня відповідь, поки даних бракує. @param {string} label @param {string[]} errors @param {string[]} [fields] @returns {CalcOut} */
+function bad(label, errors, fields = []) {
+  return { ok: false, label, value: '—', sub: '', msg: errors[0] || 'Перевірте дані', html: errHtml(errors), bad: fields };
+}
+
+/* ───────────── Живий рядок відповіді ───────────── */
+
+/**
+ * Живий рядок має сталу висоту (два рядки, довге — з трикрапкою), тож поля під ним не зсуваються.
+ * @param {CalcOut} o
+ */
+function liveHtml(o) {
+  return `<div class="calc-live${o.ok ? '' : ' stale'}${o.ok && o.tone === 'warn' ? ' warn' : ''}" id="calc-live" aria-live="polite" aria-atomic="true">
+    <span class="cl-l">${esc(o.ok ? o.label : o.msg || o.label)}</span>
+    <span class="cl-row"><b class="cl-v">${esc(o.ok ? o.value : '—')}</b><span class="cl-s">${esc(o.ok ? o.sub : '')}</span></span>
+  </div>`;
+}
+
+/**
+ * Оновлює рядок відповіді на місці. Коли даних бракує, лишає останнє число блідим,
+ * а замість підпису пояснює, чого бракує, — нічого не зникає й не стрибає.
+ * @param {CalcOut} o
+ */
+function setLive(o) {
+  const el = document.getElementById('calc-live');
+  if (!el) return;
+  el.classList.toggle('stale', !o.ok);
+  el.classList.toggle('warn', o.ok && o.tone === 'warn');
+  const l = el.querySelector('.cl-l');
+  const v = el.querySelector('.cl-v');
+  const s = el.querySelector('.cl-s');
+  if (l) l.textContent = o.ok ? o.label : focusedEmpty() ? 'Введіть значення — результат оновиться' : o.msg || 'Перевірте дані';
+  if (v && o.ok) v.textContent = o.value;
+  if (s) s.textContent = o.ok ? o.sub : '';
+}
+
+/**
+ * Поля, що суперечать одне одному, отримують червону рамку. Поле, яке людина саме набирає,
+ * не сварять посеред набору («7» на шляху до «70») — його перевірять, коли вона закінчить.
+ * @param {string} name @param {CalcOut} o
+ */
+function markBad(name, o) {
+  for (const key of o.bad || []) {
+    const el = document.getElementById(`c-${name}-${key}`);
+    if (el instanceof HTMLInputElement && el !== document.activeElement) el.setAttribute('aria-invalid', 'true');
+  }
+}
+
+function focusedEmpty() {
+  const a = document.activeElement;
+  return a instanceof HTMLInputElement && a.type === 'text' && a.value.trim() === '';
+}
+
+/** Поточний калькулятор на екрані — щоб пресети перераховували без перебудови сторінки. */
+let active = { name: '', update: () => {} };
+
+/**
+ * Поля калькулятора: збереження, миттєва підказка (червона рамка), перерахунок без стрибків.
+ * @param {string} name
+ * @param {() => CalcOut} out
+ * @param {(inp: HTMLInputElement|HTMLSelectElement) => Record<string, any>} [extra] додаткові зміни при введенні
+ */
+function bindCalc(name, out, extra) {
+  const form = /** @type {HTMLElement|null} */ (document.querySelector(`[data-form="${name}"]`));
+  const outEl = document.getElementById('calc-out');
+  const update = () => {
+    const o = out();
+    setLive(o);
+    markBad(name, o);
+    if (!outEl) return;
+    // Поки людина вводить, блок результату не стає нижчим: інакше сторінка підскакує
+    if (form && form.contains(document.activeElement)) outEl.style.minHeight = `${outEl.offsetHeight}px`;
+    outEl.innerHTML = o.html;
+  };
+  active = { name, update };
+  form?.querySelectorAll('[data-calc]').forEach((el) => {
+    const inp = /** @type {HTMLInputElement|HTMLSelectElement} */ (el);
+    const k = inp.dataset.k || '';
+    // Поле, якого торкнулася людина, лишається на тому ж місці екрана, хоч би що змінилося вище
+    if (inp instanceof HTMLSelectElement || inp.type === 'checkbox') {
+      inp.addEventListener('change', () => keepInPlace(inp, () => {
+        setCalc(name, { [k]: inp instanceof HTMLInputElement && inp.type === 'checkbox' ? inp.checked : inp.value, ...(extra ? extra(inp) : {}) });
+        update();
+      }));
+      return;
+    }
+    bindNumField(/** @type {HTMLInputElement} */ (inp), (value) => keepInPlace(inp, () => {
+      setCalc(name, { [k]: value, ...(extra ? extra(inp) : {}) });
+      update();
+    }));
+  });
+  form?.addEventListener('focusout', (e) => {
+    setTimeout(() => markBad(name, out()), 0);
+    const next = /** @type {Node|null} */ (/** @type {FocusEvent} */ (e).relatedTarget);
+    if (next && form.contains(next)) return;
+    const left = /** @type {Element|null} */ (e.target instanceof Element ? e.target : null);
+    setTimeout(() => {
+      if (outEl && outEl.style.minHeight && !form.contains(document.activeElement)) keepInPlace(left, () => { outEl.style.minHeight = ''; });
+    }, 0);
+  });
+}
+
+/**
+ * Пресет змінює значення полів на місці й перераховує — без перебудови сторінки.
+ * @param {string} name @param {Record<string, any>} patch
+ */
+function setVals(name, patch) {
+  setCalc(name, patch);
+  for (const [k, v] of Object.entries(patch)) {
+    const el = document.getElementById(`c-${name}-${k}`);
+    if (el instanceof HTMLInputElement && el.type === 'text') { el.value = String(v); el.setAttribute('aria-invalid', String(numFieldState(el, false) === 'bad')); }
+    else if (el instanceof HTMLSelectElement) el.value = String(v);
+  }
+  if (active.name === name) active.update();
+}
+
+/** Сторінка калькулятора: заголовок, живий рядок відповіді, форма, деталі. @param {string} title @param {string} sub @param {CalcOut} o @param {string} name @param {string} form @param {string} [after] */
+function calcPage(title, sub, o, name, form, after = '') {
+  return `${pageHead(title, '#/calc', sub)}
+    ${liveHtml(o)}
+    <section class="card form" data-form="${name}">${form}</section>
+    ${after}
+    <section id="calc-out">${o.html}</section>`;
 }
 
 /* ───────────── Список ───────────── */
@@ -152,80 +306,86 @@ function calcView(id) {
   return planView();
 }
 
-/** Прив’язка полів до збереження й перерахунку. @param {string} name @param {() => string} out */
-function bindCalc(name, out) {
-  document.querySelectorAll(`[data-calc="${name}"]`).forEach((el) => {
-    const inp = /** @type {HTMLInputElement} */ (el);
-    const ev = inp.type === 'checkbox' || inp.tagName === 'SELECT' ? 'change' : 'input';
-    inp.addEventListener(ev, () => {
-      setCalc(name, { [inp.dataset.k || '']: inp.type === 'checkbox' ? inp.checked : inp.value, ...(name === 'battery' && inp.dataset.k !== 'loadW' ? { preset: 'custom' } : {}) });
-      const o = document.getElementById('calc-out');
-      if (o) o.innerHTML = out();
-    });
-  });
-}
-
 /* Акумулятор */
+
+/** Поле напруги потрібне лише для мА·год і А·год. @param {string} unit */
+function syncVolt(unit) {
+  const f = document.getElementById('f-battery-voltage');
+  if (f) f.hidden = unit === 'Wh';
+  const h = document.getElementById('c-battery-voltage-h');
+  if (h) h.textContent = unit === 'mAh' ? VOLT_HINT : 'Номінальна напруга: 12 В, 12,8 В (LiFePO4), 24 В…';
+}
 
 /** @returns {View} */
 function batteryView() {
   const v = getCalc('battery');
+  const voltField = field('battery', 'voltage', 'Напруга', v.voltage, 'В', v.unit === 'mAh' ? VOLT_HINT : 'Номінальна напруга: 12 В, 12,8 В (LiFePO4), 24 В…', { min: 0.1, max: 1000 });
   return {
     title: 'Автономність акумулятора',
     tab: 'calc',
-    html: `${pageHead('Автономність акумулятора', '#/calc', 'Запас енергії й час роботи з урахуванням утрат')}
-    <section class="card form">
-      <div class="field"><label for="c-b-preset">Джерело</label>
-        <select id="c-b-preset" data-act-change="b-preset">${BATTERY_PRESETS.map((p) => `<option value="${p.id}"${v.preset === p.id ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}<option value="custom"${v.preset === 'custom' ? ' selected' : ''}>Власні значення</option></select></div>
+    html: calcPage('Автономність акумулятора', 'Запас енергії й час роботи з урахуванням утрат', batteryOut(), 'battery', `
+      <div class="field"><label for="c-battery-preset">Джерело</label>
+        <select id="c-battery-preset">${BATTERY_PRESETS.map((p) => `<option value="${p.id}"${v.preset === p.id ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}<option value="custom"${v.preset === 'custom' ? ' selected' : ''}>Власні значення</option></select></div>
       <div class="grid2">
-        ${field('battery', 'capacity', 'Ємність', v.capacity)}
+        ${field('battery', 'capacity', 'Ємність', v.capacity, '', '', { min: 0.001, max: 10000000 })}
         <div class="field"><label for="c-battery-unit">Одиниця</label><select id="c-battery-unit" data-calc="battery" data-k="unit">${[['mAh', 'мА·год'], ['Ah', 'А·год'], ['Wh', 'Вт·год']].map(([k, l]) => `<option value="${k}"${v.unit === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
       </div>
-      ${v.unit !== 'Wh' ? field('battery', 'voltage', 'Напруга', v.voltage, 'В', v.unit === 'mAh' ? 'Для павербанків — 3,6–3,7 В (напруга елементів, не 5 В).' : '') : ''}
-      ${field('battery', 'loadW', 'Потужність навантаження', v.loadW, 'Вт')}
+      ${v.unit === 'Wh' ? voltField.replace('<div class="field"', '<div class="field" hidden') : voltField}
+      ${field('battery', 'loadW', 'Потужність навантаження', v.loadW, 'Вт', '', { min: 0.01, max: 100000 })}
       <div class="chips">${LOAD_CHIPS.map((c) => `<button type="button" class="chip" data-act="b-load" data-v="${c.w}">${esc(c.label)} · ${c.w} Вт</button>`).join('')}</div>
-      ${field('battery', 'k', 'Коефіцієнт корисного використання', v.k, '', 'Від 0,05 до 1. Оберіть типовий:')}
+      ${field('battery', 'k', 'Коефіцієнт корисного використання', v.k, '', 'Від 0,05 до 1 (або у відсотках). Оберіть типовий:', { min: 0.05, max: 1, pct: true })}
       <div class="chips">${K_PRESETS.map((p) => `<button type="button" class="chip" data-act="b-k" data-v="${String(p.k).replace('.', ',')}">${esc(p.label)} · ${String(p.k).replace('.', ',')}</button>`).join('')}</div>
-      ${field('battery', 'maxW', 'Потужність виходу джерела', v.maxW, 'Вт', 'Необов’язково: перевірить, чи «потягне» вихід ваш прилад.')}
-    </section>
-    <section id="calc-out" aria-live="polite">${batteryOut()}</section>`,
+      ${field('battery', 'maxW', 'Потужність виходу джерела', v.maxW, 'Вт', 'Необов’язково: перевірить, чи «потягне» вихід ваш прилад.', { min: 0.1, opt: true })}`),
     after() {
-      bindCalc('battery', batteryOut);
-      const sel = /** @type {HTMLSelectElement|null} */ (document.getElementById('c-b-preset'));
+      bindCalc('battery', batteryOut, (inp) => {
+        if (inp.dataset.k === 'unit') syncVolt(inp.value);
+        if (inp.dataset.k === 'loadW') return {};
+        const sel = /** @type {HTMLSelectElement|null} */ (document.getElementById('c-battery-preset'));
+        if (sel) sel.value = 'custom';
+        return { preset: 'custom' };
+      });
+      const sel = /** @type {HTMLSelectElement|null} */ (document.getElementById('c-battery-preset'));
       sel?.addEventListener('change', () => {
         const p = BATTERY_PRESETS.find((x) => x.id === sel.value);
-        if (p) setCalc('battery', { preset: p.id, voltage: p.voltage, capacity: p.capacity, unit: p.unit, k: p.k, maxW: p.maxW });
-        else setCalc('battery', { preset: 'custom' });
-        app.render();
+        if (!p) { setCalc('battery', { preset: 'custom' }); return; }
+        syncVolt(p.unit);
+        setVals('battery', { preset: p.id, voltage: p.voltage, capacity: p.capacity, unit: p.unit, k: p.k, maxW: p.maxW });
       });
-      const u = /** @type {HTMLSelectElement|null} */ (document.getElementById('c-battery-unit'));
-      u?.addEventListener('change', () => app.render());
     },
   };
 }
 
+/** @returns {CalcOut} */
 function batteryOut() {
   const v = getCalc('battery');
   const r = battery({ voltage: v.voltage, capacity: v.capacity, unit: v.unit, loadW: v.loadW, k: v.k, maxW: v.maxW });
-  if (!r.ok) return errHtml(r.errors || []);
-  return `<div class="card result">
-      <p class="r-label">Орієнтовний час роботи</p>
-      <p class="r-big">${esc(fmtHours(r.hours))}</p>
+  const label = 'Орієнтовний час роботи';
+  if (!r.ok) return bad(label, r.errors || []);
+  const danger = (r.warnings || []).some((w) => w.level === 'danger');
+  return {
+    ok: true,
+    label,
+    value: fmtHours(r.hours || 0),
+    sub: danger ? 'вихід джерела не потягне цей прилад' : `${fmt(r.usableWh || 0)} Вт·год доступно`,
+    tone: danger ? 'warn' : undefined,
+    html: `<div class="card result">
+      <p class="r-label">Деталі</p>
       <ul class="r-list">
-        <li>Номінальний запас: <b>${fmt(r.nominalWh)} Вт·год</b></li>
-        <li>Доступно з урахуванням утрат: <b>${fmt(r.usableWh)} Вт·год</b></li>
-        <li>Утрати (перетворення, нагрів, резерв): <b>≈${fmt(r.lossWh)} Вт·год</b></li>
+        <li>Номінальний запас: <b>${fmt(r.nominalWh || 0)} Вт·год</b></li>
+        <li>Доступно з урахуванням утрат: <b>${fmt(r.usableWh || 0)} Вт·год</b></li>
+        <li>Утрати (перетворення, нагрів, резерв): <b>≈${fmt(r.lossWh || 0)} Вт·год</b></li>
       </ul>
-      <button class="btn ghost small" type="button" data-act="b-to-plan" data-v="${Math.round(r.usableWh)}">${icon('i-bolt')}<span>Розподілити цей запас за пріоритетами</span></button>
+      <button class="btn ghost small" type="button" data-act="b-to-plan" data-v="${Math.round(r.usableWh || 0)}">${icon('i-bolt')}<span>Розподілити цей запас за пріоритетами</span></button>
     </div>
     ${warnHtml(r.warnings || [])}
     ${note('info', 'Потужність ≠ запас', 'Потужність виходу (Вт) визначає, які прилади можна ввімкнути. Запас (Вт·год) — як довго. Інвертор на 1000 Вт не означає 1000 Вт·год енергії.')}
-    ${howHtml(r.steps || [], '<p class="hint">Точна частина — множення напруги на ємність. Коефіцієнт використання — оцінка: перевірте його тестом із реальним навантаженням.</p>')}`;
+    ${howHtml(r.steps || [], '<p class="hint">Точна частина — множення напруги на ємність. Коефіцієнт використання — оцінка: перевірте його тестом із реальним навантаженням.</p>')}`,
+  };
 }
 
 on({
-  'b-load': (el) => { setCalc('battery', { loadW: el.dataset.v }); app.render(); },
-  'b-k': (el) => { setCalc('battery', { k: el.dataset.v, preset: 'custom' }); app.render(); },
+  'b-load': (el) => setVals('battery', { loadW: el.dataset.v }),
+  'b-k': (el) => setVals('battery', { k: el.dataset.v, preset: 'custom' }),
   'b-to-plan': (el) => { setCalc('plan', { availableWh: el.dataset.v }); app.go('#/calc/plan'); },
 });
 
@@ -237,88 +397,142 @@ function heatView() {
   return {
     title: 'Нагрівання води',
     tab: 'calc',
-    html: `${pageHead('Нагрівання води', '#/calc', 'Мінімальна енергія — точно; час — орієнтовно')}
-    <section class="card form">
-      <div class="grid2">${field('heat', 'liters', 'Об’єм води', v.liters, 'л')}${field('heat', 'powerW', 'Потужність нагрівача', v.powerW, 'Вт')}</div>
-      <div class="grid2">${field('heat', 't0', 'Початкова температура', v.t0, '°C')}${field('heat', 't1', 'Бажана температура', v.t1, '°C')}</div>
+    html: calcPage('Нагрівання води', 'Мінімальна енергія — точно; час — з урахуванням тепловтрат', heatOut(), 'heat', `
+      <div class="grid2">${field('heat', 'liters', 'Об’єм води', v.liters, 'л', '', { min: 0.01, max: 500 })}${field('heat', 'powerW', 'Потужність нагрівача', v.powerW, 'Вт', '', { min: 1, max: 20000 })}</div>
       <div class="chips">${HEATER_CHIPS.map((c) => `<button type="button" class="chip" data-act="h-preset" data-w="${c.w}" data-e="${c.eff}">${esc(c.label)}</button>`).join('')}</div>
-      <div class="grid2">${field('heat', 'eff', 'Орієнтовний ККД', v.eff, '', '0,1–1')}${field('heat', 'maxW', 'Вихід станції', v.maxW, 'Вт', 'Необов’язково')}</div>
-      <label class="check"><input type="checkbox" data-calc="heat" data-k="inverter"${v.inverter ? ' checked' : ''}><span>Живлення від станції через інвертор 230 В</span></label>
-    </section>
-    <section id="calc-out" aria-live="polite">${heatOut()}</section>`,
+      <div class="grid2">${field('heat', 't0', 'Початкова температура', v.t0, '°C', '', { min: 0, max: 99 })}${field('heat', 't1', 'Бажана температура', v.t1, '°C', '', { min: 1, max: 100 })}</div>
+      <div class="grid2">${field('heat', 'eff', 'ККД нагрівача', v.eff, '', '0,1–1 або 10–100 %', { min: 0.1, max: 1, pct: true })}${field('heat', 'maxW', 'Вихід станції', v.maxW, 'Вт', 'Необов’язково', { min: 0.1, opt: true })}</div>
+      <label class="check"><input type="checkbox" data-calc="heat" data-k="inverter"${v.inverter ? ' checked' : ''}><span>Живлення від станції через інвертор 230 В</span></label>`),
     after() { bindCalc('heat', heatOut); },
   };
 }
 
+/** @returns {CalcOut} */
 function heatOut() {
   const v = getCalc('heat');
   const r = waterHeat({ liters: v.liters, t0: v.t0, t1: v.t1, powerW: v.powerW, eff: v.eff, inverter: !!v.inverter, maxW: v.maxW });
-  if (!r.ok) return errHtml(r.errors || []);
-  return `<div class="card result">
-      <p class="r-label">Орієнтовний час</p>
-      <p class="r-big">${esc(fmtHours((r.minutes || 0) / 60))}</p>
-      <ul class="r-list">
-        <li><span class="tag fact">Точно</span> Мінімальна теплова енергія: <b>${fmt(r.qWh)} Вт·год</b> (${fmt((r.qJ || 0) / 1000)} кДж)</li>
-        <li><span class="tag eng">Орієнтовно</span> Від джерела з урахуванням ККД: <b>${fmt(r.sourceWh)} Вт·год</b></li>
-        ${v.inverter ? `<li><span class="tag eng">Орієнтовно</span> З акумулятора станції: <b>${fmt(r.batteryWh)} Вт·год</b></li>` : ''}
+  const label = 'Орієнтовний час нагріву';
+  if (!r.ok) return bad(label, r.errors || [], num(v.t1) <= num(v.t0) ? ['t1'] : []);
+  const tail = `${warnHtml(r.warnings || [])}
+    ${howHtml(r.steps || [], '<p class="hint">Точна частина — Q = c·m·ΔT. Тепловтрати — оцінка за законом охолодження Ньютона для посудини з кришкою; вода спершу має температуру повітря.</p>')}`;
+  const exact = `<li><span class="tag fact">Точно</span> Мінімальна теплова енергія: <b>${fmt(r.qWh || 0)} Вт·год</b> (${fmt((r.qJ || 0) / 1000)} кДж)</li>`;
+  const tMax = Math.min(r.tMax || 0, 100);
+  if (!r.reachable) {
+    return {
+      ok: true,
+      tone: 'warn',
+      label: `Не нагріє до ${fmt(num(v.t1))} °C — найвища температура`,
+      value: `≈${fmt(tMax, 0)} °C`,
+      sub: `потрібно від ${fmt(r.needW || 0)} Вт`,
+      html: `<div class="card result warn">
+        <p class="r-label">Деталі</p>
+        <ul class="r-list">${exact}
+          <li><span class="tag eng">Орієнтовно</span> Найвища температура з цією потужністю: <b>≈${fmt(tMax, 0)} °C</b></li>
+          <li><span class="tag eng">Орієнтовно</span> Щоб нагріти за 30 хв, потрібно: <b>≈${fmt(r.power30W || 0, 0)} Вт</b></li>
+        </ul>
+      </div>${tail}`,
+    };
+  }
+  return {
+    ok: true,
+    label,
+    value: fmtHours((r.minutes || 0) / 60),
+    sub: `${fmt(r.sourceWh || 0)} Вт·год від джерела`,
+    html: `<div class="card result">
+      <p class="r-label">Деталі</p>
+      <ul class="r-list">${exact}
+        <li><span class="tag eng">Орієнтовно</span> Від джерела з ККД і тепловтратами: <b>${fmt(r.sourceWh || 0)} Вт·год</b></li>
+        ${v.inverter ? `<li><span class="tag eng">Орієнтовно</span> З акумулятора станції: <b>${fmt(r.batteryWh || 0)} Вт·год</b></li>` : ''}
       </ul>
-    </div>
-    ${warnHtml(r.warnings || [])}
-    ${howHtml(r.steps || [])}`;
+    </div>${tail}`,
+  };
 }
 
 on({
-  'h-preset': (el) => { setCalc('heat', { powerW: el.dataset.w, eff: el.dataset.e }); app.render(); },
+  'h-preset': (el) => setVals('heat', { powerW: el.dataset.w, eff: el.dataset.e }),
 });
 
 /* Запас води */
 
+/** @param {string} preset */
+function waterNoteText(preset) {
+  return (WATER_PRESETS.find((p) => p.id === preset) || { note: 'Власні значення' }).note;
+}
+
 /** @returns {View} */
 function waterView() {
   const v = getCalc('water');
+  const cnt = { min: 0, max: 1000, int: true };
   return {
     title: 'Запас води',
     tab: 'calc',
-    html: `${pageHead('Запас води', '#/calc', 'Орієнтовна потреба з поясненням припущень')}
-    <section class="card form">
+    html: calcPage('Запас води', 'Орієнтовна потреба з поясненням припущень', waterOut(), 'water', `
       <span class="flabel">Норма на людину</span>
-      <div class="chips">${WATER_PRESETS.map((p) => chip('w-preset', p.id, `${p.label}`, v.preset === p.id)).join('')}</div>
-      <p class="hint">${esc((WATER_PRESETS.find((p) => p.id === v.preset) || { note: 'Власні значення' }).note)}</p>
-      <div class="grid3">${field('water', 'adults', 'Дорослі', v.adults)}${field('water', 'kids', 'Діти', v.kids)}${field('water', 'elderly', 'Літні', v.elderly)}</div>
-      ${field('water', 'days', 'Кількість днів', v.days, 'дн.')}
-      <div class="grid3">${field('water', 'drink', 'Пиття', v.drink, 'л')}${field('water', 'cook', 'Їжа', v.cook, 'л')}${field('water', 'hygiene', 'Гігієна', v.hygiene, 'л')}</div>
-      ${field('water', 'petKg', 'Тварини: загальна маса', v.petKg, 'кг', 'Орієнтовно 50–60 мл на кг маси на добу (загальне ветеринарне правило).')}
-      ${field('water', 'haveL', 'Є зараз питної води', v.haveL, 'л', 'Необов’язково')}
-      <label class="check"><input type="checkbox" data-calc="water" data-k="hot"${v.hot ? ' checked' : ''}><span>Спека: потреба в питті подвоюється</span></label>
-    </section>
-    <section id="calc-out" aria-live="polite">${waterOut()}</section>`,
-    after() { bindCalc('water', waterOut); },
+      <div class="chips" id="w-presets">${WATER_PRESETS.map((p) => chip('w-preset', p.id, `${p.label}`, v.preset === p.id)).join('')}</div>
+      <p class="hint" id="w-note">${esc(waterNoteText(v.preset))}</p>
+      <div class="grid3">${field('water', 'adults', 'Дорослі', v.adults, '', '', cnt)}${field('water', 'kids', 'Діти', v.kids, '', '', cnt)}${field('water', 'elderly', 'Літні', v.elderly, '', '', cnt)}</div>
+      ${field('water', 'days', 'Кількість діб', v.days, 'дн.', '', { min: 0.5, max: 365 })}
+      <div class="grid3">${field('water', 'drink', 'Пиття', v.drink, 'л', '', { min: 0, max: 20 })}${field('water', 'cook', 'Їжа', v.cook, 'л', '', { min: 0, max: 50 })}${field('water', 'hygiene', 'Гігієна', v.hygiene, 'л', '', { min: 0, max: 100 })}</div>
+      ${field('water', 'petKg', 'Тварини: загальна маса', v.petKg, 'кг', 'Орієнтовно 50–60 мл на кг маси на добу (загальне ветеринарне правило).', { min: 0, max: 500, opt: true })}
+      ${field('water', 'haveL', 'Є зараз питної води', v.haveL, 'л', 'Необов’язково', { min: 0, opt: true })}
+      <label class="check"><input type="checkbox" data-calc="water" data-k="hot"${v.hot ? ' checked' : ''}><span>Спека: потреба в питті подвоюється</span></label>`),
+    after() {
+      bindCalc('water', waterOut, (inp) => {
+        if (!['drink', 'cook', 'hygiene'].includes(inp.dataset.k || '')) return {};
+        markPreset('custom', true);
+        return { preset: 'custom' };
+      });
+    },
   };
 }
 
+/**
+ * Позначає обрану норму без перебудови сторінки.
+ * @param {string} id
+ * @param {boolean} [typing] людина саме набирає число нижче — підказка не стає коротшою,
+ *   інакше все під нею (разом із полем) підскочило б угору
+ */
+function markPreset(id, typing = false) {
+  document.querySelectorAll('#w-presets [data-act="w-preset"]').forEach((b) => b.setAttribute('aria-pressed', String(/** @type {HTMLElement} */ (b).dataset.v === id)));
+  const n = document.getElementById('w-note');
+  if (!n) return;
+  n.style.minHeight = typing ? `${n.offsetHeight}px` : '';
+  n.textContent = waterNoteText(id);
+}
+
+/** @returns {CalcOut} */
 function waterOut() {
   const v = getCalc('water');
   const r = waterNeeds({ adults: v.adults, kids: v.kids, elderly: v.elderly, days: v.days, drink: v.drink, cook: v.cook, hygiene: v.hygiene, petKg: v.petKg, hot: !!v.hot, haveL: v.haveL });
-  if (!r.ok) return errHtml(r.errors || []);
   const days = num(v.days);
-  return `<div class="card result">
-      <p class="r-label">Потрібно на ${fmt(days)} ${plural(days, 'добу', 'доби', 'діб')}</p>
-      <p class="r-big">${fmt(r.total || 0)} л</p>
+  const label = days >= 0.5 && days <= 365 ? `Потрібно на ${daysText(days, true)}` : 'Потрібно води';
+  if (!r.ok) return bad(label, r.errors || [], (r.errors || []).some((e) => e.includes('хоча б одну')) ? ['adults'] : []);
+  const short = r.daysCovered != null && r.daysCovered < days;
+  return {
+    ok: true,
+    label,
+    value: `${fmt(r.total || 0)} л`,
+    sub: r.daysCovered != null ? `наявного вистачить на ${daysText(r.daysCovered, true)}` : `${fmt(r.daily || 0)} л на добу`,
+    tone: short ? 'warn' : undefined,
+    html: `<div class="card result">
+      <p class="r-label">Деталі</p>
       <ul class="r-list">
         <li>На добу: <b>${fmt(r.daily || 0)} л</b></li>
         <li>Лише на пиття за весь період: <b>${fmt(r.drinkingOnly || 0)} л</b></li>
-        ${r.daysCovered != null ? `<li>Наявного запасу вистачить на <b>${fmt(r.daysCovered, 1)}</b> ${plural(Math.floor(r.daysCovered), 'добу', 'доби', 'діб')} за цією нормою, а лише на пиття — на <b>${fmt(r.drinkDaysCovered ?? 0, 1)}</b></li>` : ''}
+        ${r.daysCovered != null ? `<li>Наявного запасу вистачить на <b>${daysText(r.daysCovered, true)}</b> за цією нормою, а лише на пиття — на <b>${daysText(r.drinkDaysCovered ?? 0, true)}</b></li>` : ''}
       </ul>
     </div>
     ${note('info', 'Припущення', `Норми — орієнтир: Sphere — 2,5–3 л на пиття, 7,5–15 л загальної базової потреби; Ready.gov — щонайменше ≈3,8 л на людину на добу для пиття й санітарії. Потреба зростає: ${(r.increases || []).join('; ')}.`)}
-    ${howHtml(r.steps || [])}`;
+    ${howHtml(r.steps || [])}`,
+  };
 }
 
 on({
   'w-preset': (el) => {
     const p = WATER_PRESETS.find((x) => x.id === el.dataset.v);
-    if (p) setCalc('water', { preset: p.id, drink: String(p.drink).replace('.', ','), cook: String(p.cook).replace('.', ','), hygiene: String(p.hygiene).replace('.', ',') });
-    app.render();
+    if (!p) return;
+    markPreset(p.id);
+    setVals('water', { preset: p.id, drink: String(p.drink).replace('.', ','), cook: String(p.cook).replace('.', ','), hygiene: String(p.hygiene).replace('.', ',') });
   },
 });
 
@@ -328,20 +542,12 @@ on({
 function planView() {
   const v = getCalc('plan');
   const devs = /** @type {any[]} */ (v.devices || []);
-  return {
-    title: 'Енергопріоритети',
-    tab: 'calc',
-    html: `${pageHead('Енергопріоритети', '#/calc', 'Розподіл заряду за важливістю')}
-    <section class="card form">
-      <div class="grid2">${field('plan', 'availableWh', 'Доступний запас', v.availableWh, 'Вт·год', 'Вже з урахуванням утрат')}${field('plan', 'days', 'На скільки діб', v.days, 'дн.')}</div>
-      <a class="linkbtn" href="#/calc/battery">${icon('i-battery')}Порахувати запас у калькуляторі акумулятора</a>
-    </section>
-    <h2 class="h2">Пристрої</h2>
+  const devList = `<h2 class="h2">Пристрої</h2>
     <ol class="devs">${devs.map((d, i) => `<li class="card dev">
-      <div class="field"><label for="dv-n-${i}">Назва</label><input id="dv-n-${i}" type="text" maxlength="60" data-dev="${i}" data-k="name" value="${esc(d.name)}"></div>
+      <div class="field"><label for="dv-n-${i}">Назва</label><input id="dv-n-${i}" type="text" maxlength="60" enterkeyhint="done" data-dev="${i}" data-k="name" value="${esc(d.name)}"></div>
       <div class="grid3">
-        <div class="field"><label for="dv-w-${i}">Вт</label><input id="dv-w-${i}" type="text" inputmode="decimal" data-dev="${i}" data-k="watts" value="${esc(d.watts)}"></div>
-        <div class="field"><label for="dv-h-${i}">Год/добу</label><input id="dv-h-${i}" type="text" inputmode="decimal" data-dev="${i}" data-k="hours" value="${esc(d.hours)}"></div>
+        <div class="field"><label for="dv-w-${i}">Вт</label><input id="dv-w-${i}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" data-dev="${i}" data-k="watts" data-min="0" data-max="20000" value="${esc(d.watts)}"></div>
+        <div class="field"><label for="dv-h-${i}">Год/добу</label><input id="dv-h-${i}" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" data-dev="${i}" data-k="hours" data-min="0" data-max="24" value="${esc(d.hours)}"></div>
         <div class="field"><label for="dv-c-${i}">Пріоритет</label><select id="dv-c-${i}" data-dev="${i}" data-k="cat">${ENERGY_CATS.map((c) => `<option value="${c.id}"${Number(d.cat) === c.id ? ' selected' : ''}>${c.id} · ${esc(c.label)}</option>`).join('')}</select></div>
       </div>
       <div class="dev-ctl">
@@ -351,41 +557,64 @@ function planView() {
         <button type="button" class="iconbtn" data-act="dv-del" data-i="${i}" aria-label="Видалити: ${esc(d.name)}">${icon('i-trash')}</button>
       </div>
     </li>`).join('')}</ol>
-    <div class="chips">${DEVICE_PRESETS.map((p, i) => `<button type="button" class="chip" data-act="dv-add" data-i="${i}">${icon('i-plus')}<span>${esc(p.name)}</span></button>`).join('')}<button type="button" class="chip" data-act="dv-add" data-i="-1">${icon('i-plus')}<span>Свій пристрій</span></button></div>
-    <section id="calc-out" aria-live="polite">${planOut()}</section>`,
+    <div class="chips">${DEVICE_PRESETS.map((p, i) => `<button type="button" class="chip" data-act="dv-add" data-i="${i}">${icon('i-plus')}<span>${esc(p.name)}</span></button>`).join('')}<button type="button" class="chip" data-act="dv-add" data-i="-1">${icon('i-plus')}<span>Свій пристрій</span></button></div>`;
+  return {
+    title: 'Енергопріоритети',
+    tab: 'calc',
+    html: calcPage('Енергопріоритети', 'Розподіл заряду за важливістю', planOut(), 'plan', `
+      <div class="grid2">${field('plan', 'availableWh', 'Доступний запас', v.availableWh, 'Вт·год', 'Вже з урахуванням утрат', { min: 0.1 })}${field('plan', 'days', 'На скільки діб', v.days, 'дн.', '', { min: 0.5, max: 60 })}</div>
+      <a class="linkbtn" href="#/calc/battery">${icon('i-battery')}Порахувати запас у калькуляторі акумулятора</a>`, devList),
     after() {
       bindCalc('plan', planOut);
+      const outEl = document.getElementById('calc-out');
+      const box = document.querySelector('.devs');
       document.querySelectorAll('[data-dev]').forEach((el) => {
-        const inp = /** @type {HTMLInputElement} */ (el);
-        inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', () => {
+        const inp = /** @type {HTMLInputElement|HTMLSelectElement} */ (el);
+        const save = (/** @type {string} */ value) => keepInPlace(inp, () => {
           const i = Number(inp.dataset.dev);
-          const cur = getCalc('plan');
-          const list = [...(cur.devices || [])];
-          list[i] = { ...list[i], [inp.dataset.k || '']: inp.dataset.k === 'cat' ? Number(inp.value) : inp.value };
+          const list = [...(getCalc('plan').devices || [])];
+          list[i] = { ...list[i], [inp.dataset.k || '']: inp.dataset.k === 'cat' ? Number(value) : value };
           setCalc('plan', { devices: list });
-          const o = document.getElementById('calc-out');
-          if (o) o.innerHTML = planOut();
+          if (outEl && box && box.contains(document.activeElement)) outEl.style.minHeight = `${outEl.offsetHeight}px`;
+          active.update();
         });
+        if (inp instanceof HTMLSelectElement) inp.addEventListener('change', () => save(inp.value));
+        else if (inp.dataset.k === 'name') inp.addEventListener('input', () => save(inp.value));
+        else bindNumField(inp, save);
+      });
+      box?.addEventListener('focusout', (e) => {
+        const left = e.target instanceof Element ? e.target : null;
+        setTimeout(() => { if (outEl && outEl.style.minHeight && !box.contains(document.activeElement)) keepInPlace(left, () => { outEl.style.minHeight = ''; }); }, 0);
       });
     },
   };
 }
 
+/** @returns {CalcOut} */
 function planOut() {
   const v = getCalc('plan');
   const r = energyPlan({ availableWh: v.availableWh, days: v.days, devices: v.devices || [] });
-  if (!r.ok) return errHtml(r.errors || []);
+  const label = 'Якщо вмикати все за планом, запасу вистачить на';
+  if (!r.ok) return bad(label, r.errors || []);
   const st = { full: ['ok', 'Повністю'], partial: ['part', 'Частково'], none: ['no', 'Не вистачає'] };
-  return `<div class="card result">
-      <p class="r-label">Якщо вмикати все за планом, запасу вистачить на</p>
-      <p class="r-big">${Number.isFinite(r.autonomyDays || 0) ? `${fmt(r.autonomyDays || 0, 1)} ${plural(Math.floor(r.autonomyDays || 0), 'добу', 'доби', 'діб')}` : '—'}</p>
+  const finite = Number.isFinite(r.autonomyDays || 0);
+  const short = finite && (r.autonomyDays || 0) < num(v.days);
+  return {
+    ok: true,
+    label,
+    value: finite ? daysText(r.autonomyDays || 0, true) : 'без обмежень',
+    sub: finite ? `потреба ${fmt(r.totalNeed || 0)} Вт·год на добу` : 'пристрої не споживають енергії',
+    tone: short ? 'warn' : undefined,
+    html: `<div class="card result">
+      <p class="r-label">Деталі</p>
       <ul class="r-list"><li>Бюджет на добу: <b>${fmt(r.budget || 0)} Вт·год</b></li><li>Потреба на добу: <b>${fmt(r.totalNeed || 0)} Вт·год</b></li>${(r.unusedWh || 0) > 0.5 ? `<li>Залишок на добу: <b>${fmt(r.unusedWh || 0)} Вт·год</b></li>` : ''}</ul>
     </div>
     ${r.medical ? note('danger', 'Медичний пристрій', 'Застосунок не визначає, чи безпечно живити медичний пристрій від цього джерела. Перевірте вимоги в інструкції до пристрою або в лікаря; майте резервний план.') : ''}
     <div class="card"><h3>Розподіл на добу</h3><table class="tbl"><thead><tr><th>Пристрій</th><th>Потрібно</th><th>Стан</th></tr></thead><tbody>
       ${(r.rows || []).map((row) => `<tr class="${st[row.status][0]}"><td><span class="pr">${row.cat}</span>${esc(row.name)}</td><td>${fmt(row.need)} Вт·год</td><td>${st[row.status][1]}${row.status === 'partial' ? ` · ${esc(fmtHours(row.hoursCovered))}` : ''}</td></tr>`).join('')}
     </tbody></table></div>
-    ${howHtml(r.steps || [])}`;
+    ${howHtml(r.steps || [])}`,
+  };
 }
 
 on({

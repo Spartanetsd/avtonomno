@@ -468,9 +468,14 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .stepper.sm .sbtn { width: 40px; height: 40px; }
 .stepper.sm input { width: 76px; flex: none; min-height: 40px; padding: 6px; }
 
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 10px; }
 .grid2 .field, .grid3 .field { margin: 10px 0; }
+/* Поля в ряду стоять на одній лінії, навіть коли підпис одного переноситься на два рядки */
+@supports (grid-template-rows: subgrid) {
+  .grid2 > .field, .grid3 > .field { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 0; }
+  .grid2 > .field > label, .grid3 > .field > label { align-self: end; }
+}
 
 .check { display: flex; align-items: center; gap: 12px; min-height: 48px; font-weight: 560; }
 .check input { width: 24px; height: 24px; accent-color: var(--accent); flex: none; }
@@ -687,6 +692,10 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .rname { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 620; }
 .rctl { display: flex; align-items: center; gap: 8px; }
 .rctl .stepper { flex: 1; }
+/* Не вміщується в рядок (вузький екран, довга одиниця) — кнопки «доступно» й «видалити» переходять нижче праворуч */
+.rctl { flex-wrap: wrap; justify-content: flex-end; }
+.ract { display: flex; gap: 8px; }
+.rctl .unit { max-width: 4.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .custom { margin-top: 16px; padding-top: 6px; border-top: 1px solid var(--line); }
 .custom h3 { margin: 12px 0 0; }
 
@@ -722,7 +731,7 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 
 .result { background: linear-gradient(165deg, var(--accent-soft), var(--surface) 65%); }
 .r-label { margin: 0; color: var(--text-2); font-size: 15px; }
-.r-big { margin: 4px 0 8px; font-size: 40px; line-height: 1.08; font-weight: 780; letter-spacing: -.025em; }
+.r-big { margin: 4px 0 8px; font-size: 40px; line-height: 1.08; font-weight: 780; letter-spacing: -.025em; font-variant-numeric: tabular-nums; }
 .r-big.sm { font-size: 30px; }
 .r-list { list-style: none; padding: 0; margin: 6px 0 12px; }
 .r-list li { margin: 0; padding: 7px 0; }
@@ -832,6 +841,7 @@ button.row { width: 100%; border: 0; background: none; color: var(--text); font:
 .sh-go { background: linear-gradient(170deg, var(--accent-soft), var(--surface) 75%); }
 .sh-big { width: 100%; min-height: 64px; margin: 14px 0 4px; border-radius: 18px; font-size: 20px; }
 .sh-big .ic { width: 26px; height: 26px; }
+.sticky-actions .sh-big { min-height: 60px; margin: 0; font-size: 19px; border-radius: 18px; }
 .sh-live { padding: 22px 18px; text-align: center; background: linear-gradient(170deg, var(--sage-soft), var(--surface) 80%); }
 .sh-l { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--sage-ink); font-size: 18px; font-weight: 720; }
 .sh-l .ic { width: 22px; height: 22px; }
@@ -913,6 +923,36 @@ button.pill { border: 0; font: inherit; font-size: 15px; font-weight: 580; curso
 .sg-h { margin: 0; font-size: 24px; font-weight: 750; }
 .sg-n { margin: 0; color: #F8B66D; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .sg-stop { min-width: 240px; min-height: 60px; margin-top: 8px; font-size: 19px; }
+.sg-flash { min-width: 240px; margin-top: 4px; background: rgba(255, 255, 255, .12); color: inherit; }
+.sg-flash[aria-pressed="true"] { background: rgba(248, 182, 109, .25); }
+.tool-signal.flash { background: #FFFFFF; color: #000000; }
+.tool-signal.flash .sg-n { color: #8A4B0F; }
+
+/* QR-код: на екрані — для сусіда поруч, на аркуші — для під’їзду */
+.qr { display: block; width: 100%; height: auto; }
+.qr-card { width: min(78vw, 300px); margin: 18px auto 10px; padding: 12px; border-radius: var(--r-lg); background: #FFFFFF; box-shadow: var(--shadow); }
+.qr-url { margin: 0 0 14px; color: var(--text-2); font-size: 14px; text-align: center; overflow-wrap: anywhere; }
+.sheet-head { display: flex; align-items: flex-start; gap: 14px; }
+.sheet-hl { flex: 1; min-width: 0; }
+.sheet-qr { flex: none; width: 112px; margin: 0; text-align: center; }
+.sheet-qr .qr { border: 1px solid var(--line); background: #FFFFFF; }
+.sheet-qr figcaption { margin-top: 4px; color: var(--text-2); font-size: 11.5px; line-height: 1.25; }
+.sh-stat { margin: 12px 0 0; }
+
+/* Особистий план на тривогу */
+.plan { border-color: var(--accent); }
+.plan h2 { margin-bottom: 6px; font-size: 17px; }
+.plan-l { display: flex; align-items: flex-start; gap: 10px; margin: 8px 0; }
+.plan-l .ic { flex: none; width: 22px; height: 22px; margin-top: 2px; color: var(--accent-ink); }
+.plan-l > span { display: grid; gap: 1px; min-width: 0; }
+.plan-l .muted { font-size: 13.5px; }
+.plan-l b { font-size: 18px; line-height: 1.3; overflow-wrap: anywhere; }
+.empty-plan { display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; border-style: dashed; }
+.empty-plan > .ic:first-child { flex: none; width: 26px; height: 26px; color: var(--accent-ink); }
+.empty-plan > span { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.empty-plan .muted { font-size: 14px; line-height: 1.35; }
+.plan-edit input { width: 100%; }
+.ln-v { flex: 1 1 auto; border-bottom: 1.5px solid var(--text-2); }
 
 /* Пам’ятка для друку */
 .sheet { margin: 16px 0; padding: 20px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
@@ -925,6 +965,39 @@ button.pill { border: 0; font: inherit; font-size: 15px; font-weight: 580; curso
 .sheet-nums { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 0; }
 .sheet-nums b { display: inline-block; min-width: 38px; font-size: 18px; }
 .sheet-foot { margin-top: 14px; color: var(--text-2); font-size: 13px; overflow-wrap: anywhere; }
+
+
+/* ───────────── Введення без стрибків ───────────── */
+
+/* Живий рядок відповіді калькулятора: завжди на видноті, навіть коли відкрита клавіатура */
+.calc-live {
+  position: sticky; top: calc(env(safe-area-inset-top, 0px) + var(--vv-top, 0px)); z-index: 6;
+  display: grid; gap: 2px; margin: 6px 0 12px; padding: 12px 16px 13px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background-color: var(--surface);
+  background-image: linear-gradient(165deg, var(--accent-soft), transparent 78%);
+  box-shadow: 0 6px 18px -10px rgba(16, 24, 40, .35);
+  transition: opacity .15s ease;
+}
+:root[data-black] .calc-live, :root[data-theme="dark"] .calc-live { box-shadow: 0 6px 18px -8px rgba(0, 0, 0, .7); }
+.cl-l, .cl-s { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cl-l { color: var(--text-2); font-size: 14px; font-weight: 600; line-height: 1.3; }
+.cl-row { display: flex; align-items: baseline; gap: 12px; min-width: 0; height: 34px; }
+.cl-v { flex: none; font-size: 30px; line-height: 1.12; font-weight: 780; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-s { min-width: 0; color: var(--text-2); font-size: 15px; line-height: 1.3; }
+.calc-live.stale .cl-v { opacity: .35; }
+.calc-live.stale .cl-l { color: var(--caution); }
+.calc-live.warn { background-image: linear-gradient(165deg, var(--danger-bg), transparent 80%); border-color: var(--danger-line); }
+.calc-live.warn .cl-v { color: var(--danger); }
+.result.warn { background: linear-gradient(165deg, var(--danger-bg), var(--surface) 70%); }
+#calc-out { transition: min-height 0s; }
+
+/* Поки відкрита клавіатура (телефон, фокус у полі), нижнє меню й липкі кнопки ховаються */
+html.typing .tabbar { display: none; }
+html.typing .sticky-actions { position: static; box-shadow: none; padding-bottom: 0; }
+html.typing .toast { bottom: calc(16px + env(safe-area-inset-bottom)); }
+/* Поле, до якого прокручує браузер, не ховається під живим рядком */
+input, select, textarea { scroll-margin-top: 112px; scroll-margin-bottom: 24px; }
 
 /* ───────────── Адаптивність ───────────── */
 
@@ -958,9 +1031,15 @@ button.pill { border: 0; font: inherit; font-size: 15px; font-weight: 580; curso
   .card { box-shadow: none; border-color: #999; }
   main { max-width: none; padding: 0; }
   main:has(.sheet) .ph { display: none; }
-  .sheet { margin: 0; padding: 10mm; border: 2px solid #000; border-radius: 0; font-size: 11.5pt; }
-  .sheet h2 { font-size: 20pt; }
-  .sheet h3 { color: #000; }
-  .sheet li { font-size: 11.5pt; }
+  .sheet { margin: 0; padding: 7mm 8mm; border: 2px solid #000; border-radius: 0; font-size: 11pt; break-inside: avoid; }
+  .sheet h2 { margin-bottom: 4px; font-size: 19pt; }
+  .sheet h3 { margin: 9px 0 2px; color: #000; }
+  .sheet li { margin: 1px 0; font-size: 11pt; line-height: 1.32; }
+  .sheet-fill { margin: 5px 0; }
   .ln { border-color: #000; }
+  .sheet-qr { width: 34mm; }
+  .sheet-qr .qr { border: 0; }
+  .sheet-qr figcaption { color: #000; font-size: 8.5pt; }
+  .sheet-foot { color: #000; font-size: 9pt; }
 }
+@page { margin: 10mm; }

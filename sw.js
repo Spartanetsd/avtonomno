@@ -2,9 +2,10 @@
 // Під час оновлення коду змініть VERSION — браузер встановить нову версію,
 // а дані користувача (localStorage) кеш не зачіпає.
 // Ілюстрації лежать в окремому кеші PICS_CACHE і не завантажуються заново
-// з кожною версією коду. Замінили чи додали картинку — збільште PICS_CACHE.
+// з кожною версією коду. Нова картинка дозберігається сама (кеш доповнюється лише відсутніми),
+// а замінили наявну — збільште PICS_CACHE.
 
-const VERSION = 'avtonomno-v2.1.0';
+const VERSION = 'avtonomno-v2.2.0';
 const PICS_CACHE = 'avtonomno-pics-v1';
 const PREFIX = 'avtonomno-';
 
@@ -27,6 +28,7 @@ const CORE = [
   './shelter.js',
   './shelterui.js',
   './tools.js',
+  './qr.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',
@@ -75,6 +77,10 @@ const PICS = [
   './pic-phys-fourier.webp',
   './pic-phys-newton.webp',
   './pic-phys-einstein.webp',
+  './pic-shelter.webp',
+  './pic-bag.webp',
+  './pic-prep.webp',
+  './pic-after.webp',
 ];
 
 const urls = CORE.map((p) => new URL(p, self.location).href);

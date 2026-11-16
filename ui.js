@@ -4,6 +4,7 @@
 import { LEVELS, SOURCES, costBand } from './data.js';
 import { RISK_LEVELS } from './safety.js';
 import { PICS } from './pics.js';
+import { num } from './calc.js';
 
 /** Глобальні дії застосунку (заповнює app.js). */
 export const app = {
@@ -163,6 +164,85 @@ export function picImg(key, cls = '', fallback = '') {
   if (!p) return fallback ? illo(fallback) : '';
   const c = [cls, p.shape || ''].filter(Boolean).join(' ');
   return `<img class="${c}" src="${p.src}" width="${p.w}" height="${p.h}" alt="${esc(p.alt)}" decoding="async" loading="lazy"${fallback ? ` data-illo="${fallback}"` : ''}>`;
+}
+
+/* ───────────── Введення чисел без стрибків ───────────── */
+
+/**
+ * Охайний вигляд числа після введення: «1.50» → «1,5», «007» → «7», «5,» → «5», «10 000» → «10000».
+ * Нечисло лишається як є — його підсвітить перевірка.
+ * @param {string} v
+ */
+export function tidyNum(v) {
+  const s = String(v).trim();
+  if (s === '') return '';
+  const n = num(s);
+  // Дуже малі й дуже великі числа JavaScript пише як «1e-7» — такі лишаємо, як ввели
+  if (Number.isNaN(n) || (n !== 0 && Math.abs(n) < 1e-6) || Math.abs(n) >= 1e21) return s;
+  return String(Object.is(n, -0) ? 0 : n).replace('.', ',');
+}
+
+/**
+ * Стан числового поля за його правилами: data-min, data-max, data-int (ціле), data-opt (можна порожнє),
+ * data-pct (частка; 85 означає 85 %). Під час набору не сварить за порожнє поле, кому в кінці
+ * чи число, менше за мінімум, — його ще дописують: «1» на шляху до «15».
+ * @param {HTMLInputElement} inp @param {boolean} typing
+ * @returns {'ok'|'bad'}
+ */
+export function numFieldState(inp, typing) {
+  const raw = inp.value.trim();
+  if (raw === '') return typing || inp.dataset.opt ? 'ok' : 'bad';
+  if (typing && /^[+-]?$|[.,]$/.test(raw)) return 'ok';
+  let n = num(raw);
+  if (Number.isNaN(n)) return 'bad';
+  if (inp.dataset.pct && n > 1 && n <= 100) n /= 100;
+  if (inp.dataset.int && !Number.isInteger(n)) return 'bad';
+  if (inp.dataset.max != null && inp.dataset.max !== '' && n > Number(inp.dataset.max)) return 'bad';
+  if (!typing && inp.dataset.min != null && inp.dataset.min !== '' && n < Number(inp.dataset.min)) return 'bad';
+  return 'ok';
+}
+
+/**
+ * Числове поле, зручне на телефоні: при фокусі вміст виділяється (новий набір замінює старе),
+ * Enter ховає клавіатуру, після введення число охайно форматується, червона рамка —
+ * лише коли значення справді хибне.
+ * @param {HTMLInputElement} inp
+ * @param {(value: string) => void} onValue
+ */
+export function bindNumField(inp, onValue) {
+  inp.addEventListener('focus', () => {
+    setTimeout(() => {
+      if (document.activeElement !== inp) return;
+      try { inp.setSelectionRange(0, inp.value.length); } catch { /* поле без виділення */ }
+    }, 0);
+  });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  inp.addEventListener('input', () => {
+    inp.setAttribute('aria-invalid', String(numFieldState(inp, true) === 'bad'));
+    onValue(inp.value);
+  });
+  inp.addEventListener('blur', () => {
+    const t = tidyNum(inp.value);
+    if (t !== inp.value) { inp.value = t; onValue(t); }
+    inp.setAttribute('aria-invalid', String(numFieldState(inp, false) === 'bad'));
+  });
+}
+
+/**
+ * Оновлює частину сторінки так, щоб елемент-орієнтир лишився на тому ж місці екрана.
+ * Safari на iPhone не «закріплює» прокрутку сам, тож зміни вище за поле зсували б усе.
+ * @param {Element|null} anchor
+ * @param {() => void} fn оновлення
+ * @param {() => Element|null} [refind] як знайти орієнтир, якщо оновлення його замінило
+ */
+export function keepInPlace(anchor, fn, refind) {
+  const before = anchor && anchor.isConnected ? anchor.getBoundingClientRect().top : null;
+  fn();
+  if (before == null) return;
+  const now = anchor && anchor.isConnected ? anchor : refind ? refind() : null;
+  if (!now) return;
+  const d = now.getBoundingClientRect().top - before;
+  if (Math.abs(d) > 1) window.scrollBy(0, d);
 }
 
 /**

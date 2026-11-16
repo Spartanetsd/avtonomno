@@ -124,9 +124,6 @@ export const EQUIP = [
   { key: 'burner', label: 'Сертифікований туристичний пальник' },
   { key: 'stove', label: 'Дров’яна піч із належним димоходом' },
   { key: 'thermos', label: 'Термос' },
-  { key: 'electricKettle', label: 'Електрочайник / електронагрівач 230 В' },
-  { key: 'gasCooker', label: 'Газова плита для приготування їжі' },
-  { key: 'stationAC', label: 'Перевірено: станція має робочий вихід 230 В AC' },
 ];
 
 /** Комунальні послуги — частина «стану сьогодні» */
@@ -171,9 +168,6 @@ export const RESERVE_CATALOG = [
   { key: 'carCharger', label: 'USB-адаптер у гніздо авто 12 В', cat: 'chargers', unit: 'шт', qty: 1 },
   { key: 'solar', label: 'Сонячна панель', cat: 'chargers', unit: 'шт', qty: 1 },
   { key: 'thermos', label: 'Термос', cat: 'thermos', unit: 'шт', qty: 1 },
-  { key: 'storedHotWater', label: 'Готовий окріп у термосі', cat: 'thermos', unit: 'л', qty: 1 },
-  { key: 'electricKettle', label: 'Електрочайник / нагрівач 230 В', cat: 'other', unit: 'шт', qty: 1 },
-  { key: 'gasCooker', label: 'Газова плита', cat: 'other', unit: 'шт', qty: 1 },
   { key: 'cooler', label: 'Термосумка з холодними акумуляторами', cat: 'thermos', unit: 'шт', qty: 1 },
   { key: 'blankets', label: 'Ковдри й пледи', cat: 'warm', unit: 'шт', qty: 4 },
   { key: 'sleepingBag', label: 'Спальник', cat: 'warm', unit: 'шт', qty: 1 },
@@ -204,7 +198,6 @@ export const KEY_LABELS = {
   gas: 'газ',
   tap: 'вода з крана',
   heatSource: 'джерело тепла для окропу',
-  electricHeatSource: 'сумісний електронагрівач із живленням',
   car12: 'автомобіль із розеткою 12 В',
   powerbank: 'павербанк',
   station: 'зарядна станція',
@@ -212,10 +205,6 @@ export const KEY_LABELS = {
   burner: 'сертифікований туристичний пальник',
   stove: 'дров’яна піч із димоходом',
   thermos: 'термос',
-  electricKettle: 'електронагрівач 230 В',
-  storedHotWater: 'готовий окріп у термосі',
-  gasCooker: 'газова плита',
-  stationAC: 'вихід станції 230 В AC',
   battery12: 'акумулятор 12 В із захистом',
   bleach: 'хлорний відбілювач 5–9 %',
   waterTabs: 'таблетки для знезараження',
@@ -237,11 +226,11 @@ export const KEY_LABELS = {
   tent: 'намет',
 };
 
-/** Поширені побутові речі, але без автоматичного припущення, що вони вже є. */
+/** Звичайні побутові речі: вважаємо наявними, якщо в резерві їх не позначено як недоступні */
 export const COMMON_KEYS = ['blankets', 'bucket', 'bags'];
 
 /** Ключі, які не можна «купити»: це умови, а не речі */
-export const CONDITION_KEYS = ['grid', 'gas', 'tap', 'heatSource', 'electricHeatSource'];
+export const CONDITION_KEYS = ['grid', 'gas', 'tap', 'heatSource'];
 
 /**
  * Сезонні сценарії. ids — посилання на рішення.

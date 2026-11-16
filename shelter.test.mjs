@@ -184,8 +184,8 @@ test('інваріант тривоги: на 300 випадкових ситу�
   }
 });
 
-test('сховище v3: нові поля, перевірка, міграція з v1, експорт та імпорт', () => {
-  assert.equal(SCHEMA, 3);
+test('сховище v2: нові поля, перевірка, міграція з v1, експорт та імпорт', () => {
+  assert.equal(SCHEMA, 2);
   const d = defaults();
   assert.deepEqual(d.bag, []);
   assert.deepEqual(d.shelter, { since: null, after: null, count: 0, minutes: 0, last: null });
@@ -209,7 +209,7 @@ test('сховище v3: нові поля, перевірка, міграція
   // Дані 1.x без нових полів
   const v1 = { v: 1, reserve: [{ key: 'drinkWater', name: 'Питна вода', cat: 'water', qty: 12, unit: 'л', ok: true }], favs: ['heat-room'], notes: 'тест' };
   const m = cleanData(migrate(v1));
-  assert.equal(m.v, 3);
+  assert.equal(m.v, 2);
   assert.equal(m.reserve.length, 1);
   assert.deepEqual(m.favs, ['heat-room']);
   assert.deepEqual(m.bag, []);
@@ -227,6 +227,25 @@ test('сховище v3: нові поля, перевірка, міграція
   const old = importData(JSON.stringify({ app: 'avtonomno', reserve: [] }), withBag);
   assert.ok(old.ok);
   assert.deepEqual(old.data.bag, ['docs', 'water'], 'старий файл без валізки не стирає позначки');
+});
+
+test('план на тривогу: обрізання, експорт та імпорт разом із лічильником укриттів', () => {
+  const d = cleanData({ plan: { shelter: 'П'.repeat(300), meet: 42 } });
+  assert.equal(d.plan.shelter.length, 120);
+  assert.equal(d.plan.meet, '');
+  assert.deepEqual(defaults().plan, { shelter: '', meet: '' });
+  const src = cleanData({ plan: { shelter: 'Підвал 2-го під’їзду', meet: 'Біля школи' }, shelter: { since: Date.UTC(2026, 10, 16), count: 7, minutes: 300 } });
+  const exp = exportData(src);
+  assert.deepEqual(exp.plan, { shelter: 'Підвал 2-го під’їзду', meet: 'Біля школи' });
+  assert.deepEqual(Object.keys(exp.shelter).sort(), ['count', 'last', 'minutes'], 'увімкнений режим укриття не експортується');
+  const cur = cleanData({ shelter: { since: Date.UTC(2026, 10, 16, 10), count: 1 } });
+  const imp = importData(JSON.stringify(exp), cur);
+  assert.ok(imp.ok);
+  assert.equal(imp.data.plan.shelter, 'Підвал 2-го під’їзду');
+  assert.equal(imp.data.shelter.count, 7);
+  assert.equal(imp.data.shelter.since, Date.UTC(2026, 10, 16, 10), 'поточний режим укриття не збивається імпортом');
+  const old = importData(JSON.stringify({ app: 'avtonomno', reserve: [] }), src);
+  assert.equal(old.data.plan.meet, 'Біля школи', 'старий файл без плану не стирає план');
 });
 
 test('Service Worker кешує кожен модуль застосунку', () => {

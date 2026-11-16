@@ -17,6 +17,12 @@ let timers = [];
 /** @type {HTMLElement|null} */
 let lastFocus = null;
 let lightLevel = 1;
+/** Запис в історії: кнопка «Назад» на Android закриває інструмент, а не сторінку під ним. */
+let pushed = false;
+/** Світловий сигнал SOS у режимі «Я тут». */
+let flashOn = false;
+/** Номер запуску світлового сигналу: старий ланцюжок таймерів зупиняється сам. */
+let flashGen = 0;
 
 /** Рівні нічника: від ледь помітного теплого до яскравого. */
 export const LIGHT_LEVELS = [
@@ -38,8 +44,11 @@ export function isToolOpen() {
 
 /** @param {ToolKind} k */
 export function openTool(k) {
-  if (el) closeTool();
-  lastFocus = /** @type {HTMLElement|null} */ (document.activeElement);
+  if (el) closeTool(true);
+  else {
+    lastFocus = /** @type {HTMLElement|null} */ (document.activeElement);
+    try { history.pushState({ avTool: true }, ''); pushed = true; } catch { pushed = false; }
+  }
   el = document.createElement('div');
   el.className = `tool tool-${k}`;
   el.setAttribute('role', 'dialog');
@@ -53,14 +62,18 @@ export function openTool(k) {
   /** @type {HTMLElement|null} */ (el.querySelector('[data-first]'))?.focus();
 }
 
-export function closeTool() {
+/** @param {boolean} [swap] інший інструмент відкривається одразу — історію й фокус не чіпаємо */
+export function closeTool(swap = false) {
   timers.forEach((t) => clearTimeout(t));
   timers = [];
+  flashOn = false;
   if (audio) { try { audio.close(); } catch { /* уже закрито */ } audio = null; }
   if (lock) { lock.release().catch(() => {}); lock = null; }
   el?.remove();
   el = null;
+  if (swap) return;
   setInert(false);
+  if (pushed) { pushed = false; history.back(); }
   lastFocus?.focus?.();
   lastFocus = null;
 }
@@ -80,6 +93,8 @@ async function keepAwake() {
 }
 document.addEventListener('visibilitychange', () => { if (el && document.visibilityState === 'visible') keepAwake(); });
 document.addEventListener('keydown', (e) => { if (el && e.key === 'Escape') closeTool(); });
+// «Назад» (жест чи кнопка) закриває інструмент; запис історії вже знято браузером
+window.addEventListener('popstate', () => { if (el) { pushed = false; closeTool(); } });
 
 /* ───────────── Нічник ───────────── */
 
@@ -127,6 +142,7 @@ function renderSignal() {
     <p class="sg-n" id="sg-n">${ok ? 'Сигнал лунає' : 'Стукайте по трубах чи батареях і користуйтеся свистком'}</p>
     <p class="tool-hint">Три гучні гудки кожні ${SIGNAL_EVERY} секунд. Між ними прислухайтеся й стукайте по трубах чи батареях. Екран чорний, щоб берегти заряд.</p>
     <p class="tool-hint">На iPhone вимкніть беззвучний режим і збільште гучність — інакше сигналу не буде чути.</p>
+    <button type="button" class="btn ghost sg-flash" data-act="flash-tog" aria-pressed="false">Світловий сигнал SOS</button>
     <button type="button" class="btn primary sg-stop" data-act="tool-close" data-first>Зупинити сигнал</button>`;
   if (!ok) return;
   let left = 0;
@@ -138,6 +154,27 @@ function renderSignal() {
     timers.push(setTimeout(tick, 1000));
   };
   tick();
+}
+
+/**
+ * Ритм SOS (· · · — — — · · ·) для світлового сигналу: [екран світлий?, тривалість мс].
+ * Одиниця 300 мс — не більше двох спалахів на секунду, безпечно для людей зі світлочутливістю.
+ */
+export const SOS_PATTERN = (() => {
+  const u = 300;
+  /** @type {[boolean, number][]} */
+  const seq = [];
+  const letter = (/** @type {number} */ len) => { for (let i = 0; i < 3; i++) { seq.push([true, len * u]); seq.push([false, i < 2 ? u : 3 * u]); } };
+  letter(1); letter(3); letter(1);
+  seq[seq.length - 1] = [false, 7 * u];
+  return seq;
+})();
+
+function flashStep(/** @type {number} */ i, /** @type {number} */ gen) {
+  if (!el || !flashOn || gen !== flashGen) return;
+  const [light, ms] = SOS_PATTERN[i % SOS_PATTERN.length];
+  el.classList.toggle('flash', light);
+  timers.push(setTimeout(() => flashStep(i + 1, gen), ms));
 }
 
 /** Три короткі гудки близько 2,8 кГц — у цьому діапазоні слух найчутливіший. */
@@ -163,5 +200,12 @@ function beepBurst() {
 on({
   tool: (b) => openTool(/** @type {ToolKind} */ (b.dataset.v)),
   'tool-close': () => closeTool(),
+  'flash-tog': (b) => {
+    flashOn = !flashOn;
+    b.setAttribute('aria-pressed', String(flashOn));
+    b.textContent = flashOn ? 'Вимкнути світловий сигнал' : 'Світловий сигнал SOS';
+    flashGen++;
+    if (flashOn) flashStep(0, flashGen); else el?.classList.remove('flash');
+  },
   'light-next': () => { lightLevel = (lightLevel + 1) % LIGHT_LEVELS.length; renderLight(); /** @type {HTMLElement|null} */ (el?.querySelector('.tool-area'))?.focus(); },
 });

@@ -7,15 +7,51 @@ export const C_WATER = 4186;
 export const L_VAPOR = 2.257e6;
 
 /**
- * Перетворює рядок/число на число (кома як десятковий роздільник).
+ * Перетворює рядок/число на скінченне число (кома як десятковий роздільник).
+ * Порожнє, «∞», «1e999» і будь-яке сміття → NaN.
  * @param {unknown} v
  */
 export function num(v) {
-  if (typeof v === 'number') return v;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : NaN;
   if (typeof v !== 'string') return NaN;
-  const s = v.trim().replace(/\s+/g, '').replace(',', '.');
-  if (s === '') return NaN;
-  return Number(s);
+  const s = v.trim().replace(/[\s\u00A0\u202F]+/g, '').replace(',', '.');
+  if (s === '' || !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * Частка від 0 до 1. Людина може ввести й відсотки: 85 → 0,85.
+ * @param {unknown} v
+ */
+export function ratio(v) {
+  const n = num(v);
+  return n > 1 && n <= 100 ? n / 100 : n;
+}
+
+/**
+ * Слово «доба» після числа: 1 доба, 2 доби, 5 діб, 2,5 доби.
+ * @param {number} n
+ * @param {boolean} [acc] знахідний відмінок: «на 1 добу»
+ */
+export function dayWord(n, acc = false) {
+  if (!Number.isInteger(n)) return 'доби';
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return 'діб';
+  if (b === 1) return acc ? 'добу' : 'доба';
+  if (b >= 2 && b <= 4) return 'доби';
+  return 'діб';
+}
+
+/**
+ * Кількість діб з одним знаком після коми й правильним словом.
+ * @param {number} n @param {boolean} [acc]
+ */
+export function daysText(n, acc = false) {
+  if (!Number.isFinite(n)) return '∞';
+  const r = Math.round(n * 10) / 10;
+  return `${fmt(r, 1)} ${dayWord(r, acc)}`;
 }
 
 /** Пресети коефіцієнта корисного використання енергії акумулятора */
@@ -32,14 +68,14 @@ export const K_PRESETS = [
  * @param {{voltage?:unknown, capacity:unknown, unit:'mAh'|'Ah'|'Wh', loadW:unknown, k:unknown, maxW?:unknown}} p
  */
 export function battery(p) {
-  const v = num(p.voltage), c = num(p.capacity), load = num(p.loadW), k = num(p.k);
+  const v = num(p.voltage), c = num(p.capacity), load = num(p.loadW), k = ratio(p.k);
   const maxRaw = p.maxW == null || p.maxW === '' ? NaN : num(p.maxW);
   /** @type {string[]} */
   const errors = [];
   if (p.unit !== 'Wh' && !(v > 0 && v <= 1000)) errors.push('Вкажіть напругу від 0 до 1000 В.');
   if (!(c > 0)) errors.push('Вкажіть ємність більшу за 0.');
   if (!(load > 0)) errors.push('Вкажіть потужність навантаження більшу за 0 Вт.');
-  if (!(k >= 0.05 && k <= 1)) errors.push('Коефіцієнт використання — від 0,05 до 1.');
+  if (!(k >= 0.05 && k <= 1)) errors.push('Коефіцієнт використання — від 0,05 до 1 (або від 5 до 100 %).');
   if (!Number.isNaN(maxRaw) && !(maxRaw > 0)) errors.push('Потужність виходу має бути більшою за 0 Вт або порожньою.');
   if (errors.length) return { ok: false, errors };
 
@@ -68,40 +104,86 @@ export function battery(p) {
 }
 
 /**
+ * Тепловтрати посудини в повітря, Вт/К (закон охолодження Ньютона).
+ * Оцінка: посудина з кришкою, висота ≈ діаметр, коефіцієнт тепловіддачі ≈10 Вт/(м²·К)
+ * (природна конвекція й випромінювання). 1 л ≈ 0,55 Вт/К, 5 л ≈ 1,6 Вт/К.
+ */
+export const HEAT_LOSS_H = 10;
+/** Запас, °C: ціль вважаємо досяжною, лише коли найвища температура вища за неї хоча б на стільки */
+export const REACH_MARGIN = 0.5;
+/** @param {number} liters */
+export function lossCoeff(liters) {
+  const r = Math.cbrt(liters / 1000 / (2 * Math.PI));
+  return HEAT_LOSS_H * 6 * Math.PI * r * r;
+}
+
+/**
  * Калькулятор нагрівання води.
+ * Точно: мінімальна енергія Q = c·m·ΔT. Орієнтовно: час із ККД і тепловтратами посудини
+ * (вода спершу має температуру повітря). Малої потужності може не вистачити взагалі.
  * @param {{liters:unknown, t0:unknown, t1:unknown, powerW:unknown, eff:unknown, inverter?:boolean, maxW?:unknown}} p
  */
 export function waterHeat(p) {
-  const l = num(p.liters), t0 = num(p.t0), t1 = num(p.t1), w = num(p.powerW), eff = num(p.eff);
+  const l = num(p.liters), t0 = num(p.t0), t1 = num(p.t1), w = num(p.powerW), eff = ratio(p.eff);
   const maxRaw = p.maxW == null || p.maxW === '' ? NaN : num(p.maxW);
   /** @type {string[]} */
   const errors = [];
   if (!(l > 0 && l <= 500)) errors.push('Об’єм води — від 0 до 500 л.');
   if (!(t0 >= 0 && t0 < 100)) errors.push('Початкова температура — від 0 до 99 °C (лід цей розрахунок не враховує).');
   if (!(t1 > 0 && t1 <= 100)) errors.push('Бажана температура — до 100 °C.');
-  if (t1 <= t0) errors.push('Бажана температура має бути вищою за початкову.');
-  if (!(w > 0)) errors.push('Вкажіть потужність нагрівача більшу за 0 Вт.');
-  if (!(eff >= 0.1 && eff <= 1)) errors.push('ККД — від 0,1 до 1.');
+  if (t0 >= 0 && t1 > 0 && t1 <= t0) errors.push('Бажана має бути вищою за початкову.');
+  if (!(w > 0 && w <= 20000)) errors.push('Потужність нагрівача — від 0 до 20 000 Вт.');
+  if (!(eff >= 0.1 && eff <= 1)) errors.push('ККД — від 0,1 до 1 (або від 10 до 100 %).');
+  if (p.maxW != null && p.maxW !== '' && !(maxRaw > 0)) errors.push('Вихід станції — число більше за 0 Вт або порожнє поле.');
   if (errors.length) return { ok: false, errors };
 
-  const qJ = l * C_WATER * (t1 - t0); // маса ≈ об’єм для води
+  const dT = t1 - t0;
+  const qJ = l * C_WATER * dT; // маса ≈ об’єм для води
   const qWh = qJ / 3600;
-  const sourceWh = qWh / eff;
+  const minSourceWh = qWh / eff;
+  const minutesNoLoss = (minSourceWh / w) * 60;
+  const pIn = w * eff; // скільки ватів доходить до води
+  const k = lossCoeff(l); // Вт/К
+  const tau = (l * C_WATER) / k; // с
+  const tMax = t0 + pIn / k; // температура, на якій нагрів = втратам
+  // Запас 0,5 °C: біля самої межі нагрів тягнувся б нескінченно довго
+  const reachable = tMax > t1 + REACH_MARGIN;
+  const minPowerW = (k * (dT + REACH_MARGIN)) / eff; // з меншою потужністю бажаної температури не досягти
+  const needW = Math.floor(minPowerW) + 1; // найменша ціла потужність, з якою вже нагріє
+  // Скільки потрібно, щоб нагріти за 30 хв з урахуванням тепловтрат
+  const e30 = Math.exp(1800 / tau);
+  const power30W = (k * e30 * dT) / (e30 - 1) / eff;
+  const minutes = reachable ? (tau * Math.log((tMax - t0) / (tMax - t1))) / 60 : Infinity;
+  const sourceWh = reachable ? (w * minutes) / 60 : Infinity;
   const batteryWh = p.inverter ? sourceWh / 0.85 : sourceWh;
-  const minutes = (sourceWh / w) * 60;
+  const lossShare = reachable ? 1 - minutesNoLoss / minutes : 1;
+
   /** @type {{level:'info'|'caution'|'danger', text:string}[]} */
   const warnings = [];
+  if (!reachable) {
+    warnings.push({ level: 'danger', text: `З потужністю ${fmt(w)} Вт вода не нагріється вище ≈${fmt(Math.min(tMax, 100), 0)} °C: на цій температурі все тепло нагрівача йде в повітря. Потрібно щонайменше ${fmt(needW)} Вт, а щоб нагріти за 30 хв — близько ${fmt(power30W, 0)} Вт.` });
+  } else {
+    if (lossShare > 0.15) warnings.push({ level: 'caution', text: `Тепловтрати помітні: через них нагрів триває на ${fmt(lossShare * 100, 0)} % довше. Накрийте посудину кришкою й обгорніть її рушником — так тепло не тікатиме в повітря.` });
+    if (minutes > 24 * 60) warnings.push({ level: 'caution', text: 'Понад добу нагріву — практично це не робочий спосіб. Шукайте потужніше джерело тепла або менший об’єм.' });
+  }
   if (t1 >= 100) warnings.push({ level: 'info', text: `Кип’ятіння понад сам нагрів витрачає енергію на пароутворення: ≈${fmt(L_VAPOR / 3600)} Вт·год на кожен випаруваний літр. Кришка зменшує ці втрати.` });
   if (!Number.isNaN(maxRaw) && w > maxRaw) warnings.push({ level: 'danger', text: `Нагрівач ${fmt(w)} Вт потужніший за вихід ${fmt(maxRaw)} Вт — не запуститься або спрацює захист.` });
-  warnings.push({ level: 'info', text: 'Реальний час зазвичай довший: частина тепла йде на посуд і в повітря, а потужність приладу може бути нижчою за паспортну.' });
+  if (reachable) warnings.push({ level: 'info', text: 'Час орієнтовний: посуд і нагрівач теж забирають тепло, а реальна потужність приладу буває нижчою за паспортну.' });
 
   const steps = [
-    `Точно (фізика): Q = c·m·ΔT = ${fmt(C_WATER)} Дж/(кг·°C) × ${fmt(l)} кг × ${fmt(t1 - t0)} °C = ${fmt(qJ / 1000)} кДж = ${fmt(qWh)} Вт·год`,
-    `Орієнтовно: з ККД ${fmt(eff)} від джерела потрібно ${fmt(qWh)} ÷ ${fmt(eff)} = ${fmt(sourceWh)} Вт·год`,
-    p.inverter ? `Через інвертор станції (ККД ≈0,85): ${fmt(sourceWh)} ÷ 0,85 = ${fmt(batteryWh)} Вт·год з акумулятора` : 'Без інвертора: споживання з джерела дорівнює попередньому рядку',
-    `Час: ${fmt(sourceWh)} Вт·год ÷ ${fmt(w)} Вт × 60 = ${fmt(minutes)} хв`,
+    `Точно (фізика): Q = c·m·ΔT = ${fmt(C_WATER)} Дж/(кг·°C) × ${fmt(l)} кг × ${fmt(dT)} °C = ${fmt(qJ / 1000)} кДж = ${fmt(qWh)} Вт·год`,
+    `До води доходить: ${fmt(w)} Вт × ККД ${fmt(eff)} = ${fmt(pIn)} Вт`,
+    `Тепловтрати посудини (закон охолодження Ньютона, оцінка з кришкою): ≈${fmt(k)} Вт на кожен градус різниці з повітрям`,
+    reachable
+      ? `Найвища можлива температура: ${fmt(t0)} + ${fmt(pIn)} ÷ ${fmt(k)} ≈ ${fmt(tMax, 0)} °C — бажані ${fmt(t1)} °C досяжні`
+      : `Найвища можлива температура: ${fmt(t0)} + ${fmt(pIn)} ÷ ${fmt(k)} ≈ ${fmt(tMax, 0)} °C — нижче бажаних ${fmt(t1)} °C`,
+    reachable
+      ? `Час із тепловтратами: ≈${fmtHours(minutes / 60)} (без утрат було б ${fmtHours(minutesNoLoss / 60)})`
+      : `Мінімальна потужність: ${fmt(k)} × (${fmt(dT)} + ${fmt(REACH_MARGIN)}) ÷ ${fmt(eff)} ≈ ${fmt(minPowerW)} Вт — тобто від ${fmt(needW)} Вт`,
+    reachable ? `Енергія від джерела: ${fmt(w)} Вт × час = ${fmt(sourceWh)} Вт·год` : 'Енергію не пораховано: з такою потужністю нагрів не завершиться',
+    p.inverter && reachable ? `Через інвертор станції (ККД ≈0,85): ${fmt(sourceWh)} ÷ 0,85 = ${fmt(batteryWh)} Вт·год з акумулятора` : 'Без інвертора: споживання з джерела дорівнює попередньому рядку',
   ];
-  return { ok: true, qJ, qWh, sourceWh, batteryWh, minutes, warnings, steps };
+  return { ok: true, qJ, qWh, minSourceWh, sourceWh, batteryWh, minutes, minutesNoLoss, reachable, tMax, minPowerW, needW, power30W, k, warnings, steps };
 }
 
 /** Пресети норм води, л на людину на добу */
@@ -119,15 +201,16 @@ export const PET_L_PER_KG = 0.06;
  * @param {{adults:unknown, kids:unknown, elderly:unknown, days:unknown, drink:unknown, cook:unknown, hygiene:unknown, petKg?:unknown, hot?:boolean, haveL?:unknown}} p
  */
 export function waterNeeds(p) {
-  const a = num(p.adults) || 0, kd = num(p.kids) || 0, e = num(p.elderly) || 0;
+  const cnt = (/** @type {unknown} */ x) => (x == null || String(x).trim() === '' ? 0 : num(x));
+  const a = cnt(p.adults), kd = cnt(p.kids), e = cnt(p.elderly);
   const days = num(p.days), drink = num(p.drink), cook = num(p.cook), hyg = num(p.hygiene);
   const petKg = p.petKg == null || p.petKg === '' ? 0 : num(p.petKg);
   const have = p.haveL == null || p.haveL === '' ? NaN : num(p.haveL);
   /** @type {string[]} */
   const errors = [];
   const people = a + kd + e;
-  if ([a, kd, e].some((x) => !(x >= 0) || !Number.isInteger(x))) errors.push('Кількість людей — цілі числа від 0.');
-  if (!(days > 0 && days <= 365)) errors.push('Кількість днів — від 1 до 365.');
+  if ([a, kd, e].some((x) => !(x >= 0 && x <= 1000) || !Number.isInteger(x))) errors.push('Кількість людей — цілі числа від 0.');
+  if (!(days >= 0.5 && days <= 365)) errors.push('Кількість діб — від 0,5 до 365.');
   if (!(drink >= 0 && drink <= 20) || !(cook >= 0 && cook <= 50) || !(hyg >= 0 && hyg <= 100)) errors.push('Перевірте норми на людину: пиття 0–20, їжа 0–50, гігієна 0–100 л.');
   if (!(petKg >= 0 && petKg <= 500)) errors.push('Маса тварин — від 0 до 500 кг.');
   if (people === 0 && !(petKg > 0)) errors.push('Додайте хоча б одну людину або тварину.');
@@ -149,7 +232,7 @@ export function waterNeeds(p) {
     `На людину на добу: пиття ${fmt(drinkEff)}${p.hot ? ` (×2 у спеку)` : ''} + їжа ${fmt(cook)} + гігієна ${fmt(hyg)} = ${fmt(perPerson)} л`,
     `Люди: ${people} × ${fmt(perPerson)} = ${fmt(peopleDaily)} л на добу`,
     petKg > 0 ? `Тварини: ${fmt(petKg)} кг × ${fmt(PET_L_PER_KG * (p.hot ? 1.5 : 1))} л/кг = ${fmt(petsDaily)} л на добу` : 'Тварин не враховано',
-    `Разом: ${fmt(daily)} л × ${fmt(days)} дн. = ${fmt(total)} л`,
+    `Разом: ${fmt(daily)} л × ${daysText(days)} = ${fmt(total)} л`,
   ];
   const increases = [
     'спека (потреба в питті може подвоїтися — Ready.gov)',
@@ -192,7 +275,7 @@ export function energyPlan(p) {
   /** @type {string[]} */
   const errors = [];
   if (!(avail > 0)) errors.push('Вкажіть доступний запас енергії більший за 0 Вт·год.');
-  if (!(days >= 1 && days <= 60)) errors.push('Період — від 1 до 60 діб.');
+  if (!(days >= 0.5 && days <= 60)) errors.push('Період — від 0,5 до 60 діб.');
   const devs = (p.devices || []).map((d, i) => ({ i, name: String(d.name || 'Пристрій').slice(0, 60), watts: num(d.watts), hours: num(d.hours), cat: Math.min(5, Math.max(1, Math.round(Number(d.cat) || 5))), medical: !!d.medical }));
   if (!devs.length) errors.push('Додайте хоча б один пристрій.');
   if (devs.some((d) => !(d.watts >= 0) || !(d.hours >= 0 && d.hours <= 24))) errors.push('Потужність — від 0 Вт, години — від 0 до 24 на добу.');
@@ -211,10 +294,10 @@ export function energyPlan(p) {
   const totalNeed = rows.reduce((s, r) => s + r.need, 0);
   const autonomyDays = totalNeed > 0 ? avail / totalNeed : Infinity;
   const steps = [
-    `Добовий бюджет: ${fmt(avail)} Вт·год ÷ ${fmt(days)} дн. = ${fmt(budget)} Вт·год`,
+    `Добовий бюджет: ${fmt(avail)} Вт·год ÷ ${daysText(days)} = ${fmt(budget)} Вт·год`,
     `Добова потреба всіх пристроїв: Σ(Вт × год) = ${fmt(totalNeed)} Вт·год`,
     'Енергія розподіляється за пріоритетом: спершу категорія 1, потім 2 і далі; у межах категорії — за порядком у списку.',
-    Number.isFinite(autonomyDays) ? `Якщо вмикати все за планом: ${fmt(avail)} ÷ ${fmt(totalNeed)} = ${fmt(autonomyDays)} доби` : 'Пристрої не споживають енергії',
+    Number.isFinite(autonomyDays) ? `Якщо вмикати все за планом: ${fmt(avail)} ÷ ${fmt(totalNeed)} = ${daysText(autonomyDays)}` : 'Пристрої не споживають енергії',
   ];
   return { ok: true, budget, totalNeed, autonomyDays, rows, unusedWh: Math.max(0, left), medical: rows.some((r) => r.medical), steps };
 }
@@ -245,6 +328,6 @@ export function fmtHours(h) {
   const total = Math.round(h * 60);
   const hh = Math.floor(total / 60), mm = total % 60;
   if (hh === 0) return `${mm} хв`;
-  if (hh >= 48) return `${fmt(h / 24, 1)} доби`;
+  if (hh >= 48) return daysText(h / 24);
   return mm ? `${hh} год ${mm} хв` : `${hh} год`;
 }

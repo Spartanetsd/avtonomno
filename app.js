@@ -50,6 +50,7 @@ const ROUTES = [
   [/^\/bag$/, () => shelterScreens.bag()],
   [/^\/prep$/, () => shelterScreens.prep()],
   [/^\/sheet$/, () => shelterScreens.sheet()],
+  [/^\/share$/, () => shelterScreens.share()],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
@@ -148,7 +149,6 @@ function viewHome() {
     </section>
     ${live ? '' : alarmCard(d)}
     ${setup}
-    ${!live && d.state.outsideSafe !== true ? note('caution', 'Вихід надвір не підтверджений', 'Поки ви не позначите, що зараз безпечно виходити, рішення з виходом надвір не пропонуються. Це можна змінити в «Мій стан сьогодні».', '<p><a href="#/state" class="pill">Оцінити умови виходу</a></p>') : ''}
     <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
     ${stateCard(d, c)}
     ${readyHtml(readiness(d, c), true)}
@@ -172,7 +172,7 @@ function alarmCard(d) {
     return `<a class="card alarm live" href="#/shelter"><i class="live-dot" aria-hidden="true"></i><span class="al-t"><b>Ви в укритті · <span class="sh-live-t short">${esc(durText(elapsedMin(sh.since, Date.now()), true))}</span></b><span>Відкрити режим укриття</span></span>${icon('i-chev', 'end')}</a>`;
   }
   if (sh.since != null) {
-    return `<a class="card alarm" href="#/shelter"><span class="al-i">${icon('i-check')}</span><span class="al-t"><b>Ви підтвердили відбій</b><span>Відкрийте кроки після виходу</span></span>${icon('i-chev', 'end')}</a>`;
+    return `<a class="card alarm" href="#/shelter"><span class="al-i">${icon('i-check')}</span><span class="al-t"><b>Відбій тривоги</b><span>Кроки після виходу з укриття</span></span>${icon('i-chev', 'end')}</a>`;
   }
   return `<a class="card alarm" href="#/shelter"><span class="al-i">${icon('i-shelter')}</span><span class="al-t"><b>Повітряна тривога?</b><span>Що робити й режим «Я в укритті»</span></span>${icon('i-chev', 'end')}</a>`;
 }
@@ -609,7 +609,7 @@ let reloading = false;
 function offlineBadge() {
   const net = navigator.onLine ? '' : ' · зараз без інтернету';
   switch (swInfo.status) {
-    case 'ready': return `<span class="ob ok">${icon('i-offline')}Основні функції офлайн · ілюстрації ${swInfo.picsCached}/${swInfo.picsTotal || 38}${net}</span>`;
+    case 'ready': return `<span class="ob ok">${icon('i-offline')}Готово до роботи офлайн${net}</span>`;
     case 'partial': return `<span class="ob wait">${icon('i-sync')}Кешування: ${swInfo.cached} з ${swInfo.total}${net}</span>`;
     case 'unsupported': return `<span class="ob off">${icon('i-info')}Офлайн-режим недоступний у цьому браузері${net}</span>`;
     case 'error': return `<span class="ob off">${icon('i-warn')}Офлайн-режим не підтверджено${net}</span>`;
@@ -706,9 +706,6 @@ window.addEventListener('offline', refreshBadge);
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); swInfo.install = e; /** @type {any} */ (window).__avInstall = e; refreshBadge(); });
 window.addEventListener('appinstalled', () => { swInfo.install = null; refreshBadge(); });
 window.addEventListener('av-recheck', () => checkOffline());
-window.addEventListener('av-cache-pics', () => {
-  navigator.serviceWorker?.ready.then((reg) => { reg.active?.postMessage({ type: 'CACHE_PICS' }); checkOffline(); });
-});
 
 /* ───────────── Запуск ───────────── */
 
@@ -737,6 +734,33 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 render();
 /** @type {any} */ (window).__avReady = true;
 initSW();
+// Поки на телефоні відкрита клавіатура, нижнє меню й липкі кнопки не закривають поля
+const TYPE_SEL = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="button"]):not([readonly]), textarea';
+const coarse = matchMedia('(pointer: coarse)');
+const touch = () => coarse.matches || navigator.maxTouchPoints > 0;
+document.addEventListener('focusin', (e) => {
+  if (touch() && e.target instanceof Element && e.target.matches(TYPE_SEL)) document.documentElement.classList.add('typing');
+});
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    const a = document.activeElement;
+    if (!(a instanceof Element && a.matches(TYPE_SEL))) { document.documentElement.classList.remove('typing'); syncVV(); }
+  }, 80);
+});
+// Клавіатура може зсунути видиму область униз (visualViewport.offsetTop > 0) —
+// тоді живий рядок відповіді прилипає до видимого верху екрана, а не до схованого
+const vv = window.visualViewport;
+let vvRaf = 0;
+function syncVV() {
+  vvRaf = 0;
+  const top = vv && document.documentElement.classList.contains('typing') ? Math.max(0, Math.round(vv.offsetTop)) : 0;
+  document.documentElement.style.setProperty('--vv-top', `${top}px`);
+}
+if (vv) {
+  const queue = () => { if (!vvRaf) vvRaf = requestAnimationFrame(syncVV); };
+  vv.addEventListener('resize', queue);
+  vv.addEventListener('scroll', queue);
+}
 // Живий таймер режиму укриття: позначка в шапці й лічильники на сторінці
 setInterval(() => updateChip(parseHash().path), 15000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updateChip(parseHash().path); });

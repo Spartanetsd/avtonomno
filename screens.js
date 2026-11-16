@@ -6,23 +6,22 @@ import { PLACES, LIMITS, DURATIONS, BUDGETS, EQUIP, UTILITIES, RESERVE_CATS, RES
 import { MYTHS } from './solutions.js';
 import { reserveInsight } from './engine.js';
 import { RULES, SYMPTOMS, EMERGENCY, RISK_LEVELS, stateAlerts } from './safety.js';
-import { fmt } from './calc.js';
-import { app, on, esc, icon, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg, applyTheme } from './ui.js';
-import { readiness } from './shelter.js';
+import { fmt, num } from './calc.js';
+import { app, on, esc, icon, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg, applyTheme, bindNumField, numFieldState, keepInPlace } from './ui.js';
+import { readiness, durText } from './shelter.js';
 import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 /* ───────────── Допоміжні ───────────── */
 
 /** @param {string} v */
 function parseNum(v) {
-  const s = String(v).trim().replace(',', '.');
-  if (s === '') return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : NaN;
+  // Ті самі правила, що й у калькуляторах: кома чи крапка, пробіли між розрядами; «1e9» чи «0x10» — не число
+  if (String(v).trim() === '') return null;
+  return num(v);
 }
 
 /** @param {number|null} v */
@@ -31,19 +30,20 @@ function numVal(v) {
 }
 
 /**
- * Поле з кнопками ± .
- * @param {{id:string, label:string, value:number|null, step:number, unit?:string, hint?:string, act:string, min?:number, max?:number}} o
+ * Поле з кнопками ± . Цілі числа (люди, тварини) — цифрова клавіатура без коми.
+ * Від’ємні значення (мороз у кімнаті) вводяться кнопкою «−»: на iPhone у цифровій клавіатурі мінуса немає.
+ * @param {{id:string, label:string, value:number|null, step:number, unit?:string, hint?:string, act:string, min?:number, max?:number, int?:boolean}} o
  */
 function stepper(o) {
   return `<div class="field">
     <label for="${o.id}">${esc(o.label)}</label>
     <div class="stepper">
       <button type="button" class="sbtn" data-act="${o.act}" data-f="${o.id}" data-d="${-o.step}" aria-label="Зменшити: ${esc(o.label)}">${icon('i-minus')}</button>
-      <input id="${o.id}" type="text" inputmode="decimal" autocomplete="off" value="${esc(numVal(o.value))}" data-min="${o.min ?? ''}" data-max="${o.max ?? ''}" placeholder="—" aria-describedby="${o.id}-h">
+      <input id="${o.id}" type="text" inputmode="${o.int ? 'numeric' : 'decimal'}" enterkeyhint="done" autocomplete="off" value="${esc(numVal(o.value))}" data-min="${o.min ?? ''}" data-max="${o.max ?? ''}"${o.int ? ' data-int="1"' : ''} data-opt="1" placeholder="—" aria-describedby="${o.id}-h">
       <button type="button" class="sbtn" data-act="${o.act}" data-f="${o.id}" data-d="${o.step}" aria-label="Збільшити: ${esc(o.label)}">${icon('i-plus')}</button>
       ${o.unit ? `<span class="unit">${esc(o.unit)}</span>` : ''}
     </div>
-    <p class="hint" id="${o.id}-h">${esc(o.hint || '')}</p>
+    <p class="hint" id="${o.id}-h" data-hint="${esc(o.hint || '')}">${esc(o.hint || '')}</p>
   </div>`;
 }
 
@@ -61,26 +61,26 @@ const STATE_FIELDS = {
   'f-waterL': { key: 'waterL', label: 'Питна вода', unit: 'л', step: 1, min: 0, max: 100000 },
   'f-batteryPct': { key: 'batteryPct', label: 'Заряд основного акумулятора', unit: '%', step: 5, min: 0, max: 100 },
   'f-roomC': { key: 'roomC', label: 'Температура в кімнаті', unit: '°C', step: 1, min: -40, max: 60 },
-  'f-adults': { key: 'adults', label: 'Дорослі', unit: '', step: 1, min: 0, max: 50 },
-  'f-kids': { key: 'kids', label: 'Діти', unit: '', step: 1, min: 0, max: 50 },
-  'f-elderly': { key: 'elderly', label: 'Літні люди', unit: '', step: 1, min: 0, max: 50 },
-  'f-pets': { key: 'pets', label: 'Тварини', unit: '', step: 1, min: 0, max: 50 },
+  'f-adults': { key: 'adults', label: 'Дорослі', unit: '', step: 1, min: 0, max: 50, int: true },
+  'f-kids': { key: 'kids', label: 'Діти', unit: '', step: 1, min: 0, max: 50, int: true },
+  'f-elderly': { key: 'elderly', label: 'Літні люди', unit: '', step: 1, min: 0, max: 50, int: true },
+  'f-pets': { key: 'pets', label: 'Тварини', unit: '', step: 1, min: 0, max: 50, int: true },
   'f-petKg': { key: 'petKg', label: 'Загальна маса тварин', unit: 'кг', step: 1, min: 0, max: 500 },
 };
 
 /** @returns {View} */
 function stateView() {
   const s = store.get().state;
-  const tri = (/** @type {'power'|'gas'|'tap'|'outsideSafe'} */ k, /** @type {string} */ label) => {
+  const tri = (/** @type {'power'|'gas'|'tap'} */ k, /** @type {string} */ label) => {
     const v = s[k] === true ? '1' : s[k] === false ? '0' : '';
     return `<div class="field"><span class="flabel" id="lb-${k}">${esc(label)}</span>
       <div class="seg" role="group" aria-labelledby="lb-${k}">
-        ${(k === 'outsideSafe' ? [['0', 'Небезпечно'], ['1', 'Безпечно'], ['', 'Не знаю']] : [['1', 'Є'], ['0', 'Немає'], ['', 'Не знаю']]).map(([vv, l]) => `<button type="button" class="seg-b" data-act="st-tri" data-f="${k}" data-v="${vv}" aria-pressed="${v === vv}">${l}</button>`).join('')}
+        ${[['1', 'Є'], ['0', 'Немає'], ['', 'Не знаю']].map(([vv, l]) => `<button type="button" class="seg-b" data-act="st-tri" data-f="${k}" data-v="${vv}" aria-pressed="${v === vv}">${l}</button>`).join('')}
       </div></div>`;
   };
   const f = (/** @type {keyof typeof STATE_FIELDS} */ id, /** @type {string} */ hint = '') => {
-    const m = STATE_FIELDS[id];
-    return stepper({ id, label: m.label, value: /** @type {any} */ (s)[m.key], step: m.step, unit: m.unit, act: 'st-step', min: m.min, max: m.max, hint });
+    const m = /** @type {{key:string, label:string, unit:string, step:number, min:number, max:number, int?:boolean}} */ (STATE_FIELDS[id]);
+    return stepper({ id, label: m.label, value: /** @type {any} */ (s)[m.key], step: m.step, unit: m.unit, act: 'st-step', min: m.min, max: m.max, int: !!m.int, hint });
   };
   return {
     title: 'Мій стан сьогодні',
@@ -92,9 +92,6 @@ function stateView() {
       ${tri('power', 'Електроенергія')}
       ${tri('gas', 'Газ')}
       ${tri('tap', 'Вода з крана')}
-      <h2>Безпека виходу</h2>
-      ${tri('outsideSafe', 'Чи безпечно зараз виходити надвір?')}
-      <p class="hint">Невідомо = не рекомендувати вихід. Вибір «Безпечно» — лише ваша оцінка зараз, не офіційний дозвіл. Перевіряйте обстановку перед кожним виходом.</p>
     </section>
     <section class="card form">
       <h2>Запаси й умови</h2>
@@ -114,8 +111,17 @@ function stateView() {
     after() {
       document.querySelectorAll('.stepper input').forEach((el) => {
         const inp = /** @type {HTMLInputElement} */ (el);
-        inp.addEventListener('input', () => saveField(inp));
-        inp.addEventListener('blur', () => { const n = parseNum(inp.value); if (n != null && !Number.isNaN(n)) inp.value = numVal(clampField(inp, n)); });
+        // Спершу межі (−40…60 °C тощо), потім охайне форматування й рамка
+        inp.addEventListener('blur', () => {
+          const n = parseNum(inp.value);
+          if (n == null || Number.isNaN(n)) return;
+          const v = clampField(inp, n);
+          // Люди й тварини — цілі: показуємо те саме число, що збережено
+          inp.value = numVal(inp.dataset.int && v != null ? Math.round(v) : v);
+        });
+        bindNumField(inp, () => saveField(inp));
+        // Поради нижче оновлюються, коли людина закінчила вводити, — без стрибків під час набору
+        inp.addEventListener('change', () => refreshAlerts(inp));
       });
     },
   };
@@ -133,9 +139,15 @@ function saveField(inp) {
   const m = STATE_FIELDS[/** @type {keyof typeof STATE_FIELDS} */ (inp.id)];
   if (!m) return;
   const n = parseNum(inp.value);
-  inp.setAttribute('aria-invalid', String(Number.isNaN(n)));
   const hint = document.getElementById(`${inp.id}-h`);
-  if (Number.isNaN(n)) { if (hint) hint.textContent = 'Введіть число, наприклад 5 або 2,5.'; return; }
+  if (Number.isNaN(n)) {
+    // «2,» чи «-» — число ще дописують: не сваримо й нічого не зберігаємо
+    if (document.activeElement === inp && numFieldState(inp, true) === 'ok') return;
+    inp.setAttribute('aria-invalid', 'true');
+    if (hint) hint.textContent = 'Введіть число, наприклад 5 або 2,5.';
+    return;
+  }
+  if (hint) hint.textContent = hint.dataset.hint || '';
   const v = clampField(inp, n);
   store.update((d) => {
     const st = /** @type {any} */ (d.state);
@@ -143,8 +155,12 @@ function saveField(inp) {
     st[m.key] = v == null ? (isCount ? 0 : null) : isCount ? Math.round(v) : v;
     d.state.updated = new Date().toISOString();
   });
+}
+
+/** Поради «Зверніть увагу» — оновити так, щоб поле чи кнопка не зсунулися. @param {Element} anchor */
+function refreshAlerts(anchor) {
   const sa = document.getElementById('state-alerts');
-  if (sa) sa.innerHTML = stateAlertsHtml();
+  if (sa) keepInPlace(anchor, () => { sa.innerHTML = stateAlertsHtml(); });
 }
 
 function stateAlertsHtml() {
@@ -155,7 +171,7 @@ function stateAlertsHtml() {
 
 on({
   'st-tri': (el) => {
-    const k = /** @type {'power'|'gas'|'tap'|'outsideSafe'} */ (el.dataset.f);
+    const k = /** @type {'power'|'gas'|'tap'} */ (el.dataset.f);
     const v = el.dataset.v === '1' ? true : el.dataset.v === '0' ? false : null;
     store.update((d) => { d.state[k] = v; d.state.updated = new Date().toISOString(); });
     app.render();
@@ -167,7 +183,9 @@ on({
     const base = cur == null || Number.isNaN(cur) ? (inp.id === 'f-roomC' ? 15 : 0) : cur;
     const n = clampField(inp, Math.round((base + Number(el.dataset.d)) * 10) / 10);
     inp.value = numVal(n);
+    inp.setAttribute('aria-invalid', 'false');
     saveField(inp);
+    refreshAlerts(el);
   },
   'st-clear': () => {
     if (!confirm('Очистити стан сьогодні? Резерв і налаштування залишаться.')) return;
@@ -199,14 +217,7 @@ function setupView(n) {
     const eq = EQUIP.map((e) => chip('su-equip', e.key, e.label, p.equip.includes(e.key))).join('');
     const none = !p.equip.length && d.state.power !== true && d.state.gas !== true && d.state.tap !== true;
     body = `<p class="hint">Позначте все, що є зараз. Кілька варіантів — можна.</p>
-      <div class="choices">${util}${eq}${chip('su-none', '1', 'Нічого з переліченого', none)}</div>
-      ${p.equip.includes('station') && p.equip.includes('electricKettle') ? `<fieldset class="power-verify">
-        <legend>Чи зможе станція нагріти воду?</legend>
-        <p class="hint">Для чайника 230 В потрібен відповідний вихід AC. Укажіть потужність за паспортами обох пристроїв. Невідоме значення = не підтверджено.</p>
-        <div class="field"><label for="station-w">Максимальна тривала потужність виходу станції (Вт)</label><input id="station-w" type="number" inputmode="numeric" min="1" max="20000" step="1" value="${p.stationW ?? ''}" placeholder="Наприклад 300" /></div>
-        <div class="field"><label for="kettle-w">Споживання електронагрівача (Вт)</label><input id="kettle-w" type="number" inputmode="numeric" min="1" max="10000" step="1" value="${p.kettleW ?? ''}" placeholder="Наприклад 1000" /></div>
-        <p class="hint">Якщо споживання нагрівача більше за вихід станції, кип’ятіння від станції не пропонуватиметься. Перевіряйте також заряд і сумісність роз’єму.</p>
-      </fieldset>` : ''}`;
+      <div class="choices">${util}${eq}${chip('su-none', '1', 'Нічого з переліченого', none)}</div>`;
   } else if (step === 3) {
     q = 'Які обмеження?';
     body = `<p class="hint">Небезпечні варіанти за цими умовами не з’являться серед рекомендованих.</p>
@@ -230,18 +241,7 @@ function setupView(n) {
       ${step < SETUP_STEPS ? `<a class="btn primary" href="#/setup/${step + 1}">Далі</a>` : `<button class="btn primary" type="button" data-act="su-finish">Готово</button>`}
       <button class="btn ghost" type="button" data-act="su-skip">Пропустити</button>
     </div>
-    <p class="hint">Усі відповіді можна змінити пізніше в розділі «Готовність». Вихід надвір визначайте в «Мій стан сьогодні» перед отриманням рекомендацій.</p>`,
-    after() {
-      for (const [id, key] of [['station-w', 'stationW'], ['kettle-w', 'kettleW']]) {
-        const el = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-        el?.addEventListener('input', () => {
-          const n = Number(el.value);
-          const max = key === 'stationW' ? 20000 : 10000;
-          const value = el.value !== '' && Number.isFinite(n) && n >= 1 && n <= max ? Math.round(n) : null;
-          store.update((d) => { if (key === 'stationW') d.profile.stationW = value; else d.profile.kettleW = value; });
-        });
-      }
-    },
+    <p class="hint">Усі відповіді можна змінити пізніше в розділі «Готовність».</p>`,
   };
 }
 
@@ -309,11 +309,13 @@ function resourcesView() {
     tab: 'res',
     html: `${pageHead('Готовність', '', 'Підготовка сьогодні — спокій завтра')}
     ${readyHtml(r, false)}
+    ${d.shelter.count ? `<p class="praise sh-stat">Ви вчасно ховалися ${d.shelter.count} ${plural(d.shelter.count, 'раз', 'рази', 'разів')}${d.shelter.minutes >= 1 ? ` — загалом ${durText(d.shelter.minutes)} в укритті` : ''}. Дякуємо, що бережете себе.</p>` : ''}
     <div class="rows">
       <a class="row two" href="#/state">${icon('i-thermo')}<span><b>Мій стан сьогодні</b><span class="muted">${esc(stateSummary(d))}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/setup/1">${icon('i-home')}<span><b>Моя ситуація</b><span class="muted">${esc(sit)}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/saved">${icon('i-star')}<span><b>Збережене</b><span class="muted">${nf ? `${nf} ${plural(nf, 'рішення', 'рішення', 'рішень')}` : 'Поки порожньо'}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/sheet">${icon('i-print')}<span><b>Пам’ятка для укриття</b><span class="muted">Роздрукувати для свого будинку</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/share">${icon('i-share')}<span><b>Поділитися з сусідами</b><span class="muted">QR-код застосунку на екрані</span></span>${icon('i-chev', 'end')}</a>
     </div>
     <section class="card">
       <h2><label for="notes">Нотатки на випадок</label></h2>
@@ -349,11 +351,11 @@ function reserveView() {
     <section class="card">
       <h2>Дані</h2>
       <div class="row-btns">
-        <button class="btn ghost" type="button" data-act="data-export">${icon('i-download')}<span>Повна резервна копія JSON</span></button>
+        <button class="btn ghost" type="button" data-act="data-export">${icon('i-download')}<span>Експорт JSON</span></button>
         <label class="btn ghost" for="import-file">${icon('i-upload')}<span>Імпорт JSON</span></label>
         <input id="import-file" type="file" accept="application/json,.json" class="sr-only">
       </div>
-      <p class="hint">Експорт містить запаси, ситуацію, тему, калькулятори, обране, валізку й статистику укриття. Активну тривогу не переносимо з одного пристрою на інший. Імпорт повної копії замінить ці дані після підтвердження; старі часткові JSON теж підтримуються. Файл містить ваші локальні записи — зберігайте приватно.</p>
+      <p class="hint">Експорт — резервна копія запасів, ситуації, валізки, укриття й збереженого. Імпорт замінює поточні запаси після підтвердження.</p>
       ${!store.isPersistent() ? note('caution', 'Дані не зберігаються', store.getError() || 'Браузер блокує локальне сховище. Зробіть експорт, щоб не втратити запаси.') : ''}
       <button class="btn danger-ghost" type="button" data-act="data-reset">${icon('i-trash')}<span>Скинути всі дані</span></button>
     </section>`,
@@ -361,8 +363,7 @@ function reserveView() {
       bindReserveInputs();
       const f = /** @type {HTMLInputElement|null} */ (document.getElementById('import-file'));
       f?.addEventListener('change', () => { if (f.files && f.files[0]) importFile(f.files[0]); f.value = ''; });
-      const form = /** @type {HTMLFormElement|null} */ (document.getElementById('custom-form'));
-      form?.addEventListener('submit', (e) => { e.preventDefault(); addCustom(form); });
+      bindCustomForm();
     },
   };
 }
@@ -403,12 +404,14 @@ function reserveListHtml() {
       <div class="rctl">
         <div class="stepper sm">
           <button type="button" class="sbtn" data-act="res-step" data-id="${it.id}" data-d="-1" aria-label="Менше: ${esc(it.name)}">${icon('i-minus')}</button>
-          <input type="text" inputmode="decimal" value="${esc(numVal(it.qty))}" data-res="${it.id}" aria-label="Кількість: ${esc(it.name)}">
+          <input type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" value="${esc(numVal(it.qty))}" data-res="${it.id}" data-min="0" data-max="100000" aria-label="Кількість: ${esc(it.name)}">
           <button type="button" class="sbtn" data-act="res-step" data-id="${it.id}" data-d="1" aria-label="Більше: ${esc(it.name)}">${icon('i-plus')}</button>
           <span class="unit">${esc(it.unit)}</span>
         </div>
-        <button type="button" class="iconbtn" data-act="res-ok" data-id="${it.id}" aria-pressed="${it.ok}" aria-label="${it.ok ? 'Позначити недоступним' : 'Позначити доступним'}: ${esc(it.name)}">${icon(it.ok ? 'i-check' : 'i-close')}</button>
-        <button type="button" class="iconbtn" data-act="res-del" data-id="${it.id}" aria-label="Видалити: ${esc(it.name)}">${icon('i-trash')}</button>
+        <div class="ract">
+          <button type="button" class="iconbtn" data-act="res-ok" data-id="${it.id}" aria-pressed="${it.ok}" aria-label="${it.ok ? 'Позначити недоступним' : 'Позначити доступним'}: ${esc(it.name)}">${icon(it.ok ? 'i-check' : 'i-close')}</button>
+          <button type="button" class="iconbtn" data-act="res-del" data-id="${it.id}" aria-label="Видалити: ${esc(it.name)}">${icon('i-trash')}</button>
+        </div>
       </div></li>`).join('')}</ul></div>`;
   }).join('');
 }
@@ -426,39 +429,64 @@ function addHtml() {
       <div class="field"><label for="c-name">Назва</label><input id="c-name" type="text" maxlength="80" required placeholder="Наприклад: свічки-таблетки"></div>
       <div class="grid2">
         <div class="field"><label for="c-cat">Категорія</label><select id="c-cat">${RESERVE_CATS.map((c) => `<option value="${c.key}">${esc(c.label)}</option>`).join('')}</select></div>
-        <div class="field"><label for="c-qty">Кількість</label><input id="c-qty" type="text" inputmode="decimal" value="1"></div>
+        <div class="field"><label for="c-qty">Кількість</label><input id="c-qty" type="text" inputmode="decimal" enterkeyhint="done" autocomplete="off" data-min="0" data-max="100000" value="1"></div>
       </div>
       <div class="field"><label for="c-unit">Одиниця</label><input id="c-unit" type="text" maxlength="12" value="шт"></div>
       <button class="btn primary" type="submit">${icon('i-plus')}<span>Додати</span></button>
     </form>`;
 }
 
-function refreshReserve() {
-  const a = document.getElementById('reserve-list');
-  if (a) a.innerHTML = reserveListHtml();
-  const b = document.getElementById('reserve-insight');
-  if (b) b.innerHTML = insightHtml();
-  const fold = document.getElementById('add-fold');
-  if (fold) {
-    const open = /** @type {HTMLDetailsElement} */ (fold).open;
-    fold.innerHTML = `<summary>${icon('i-plus')}<span>Додати до резерву</span></summary>${addHtml()}`;
-    /** @type {HTMLDetailsElement} */ (fold).open = open;
-    const form = /** @type {HTMLFormElement|null} */ (document.getElementById('custom-form'));
-    form?.addEventListener('submit', (e) => { e.preventDefault(); addCustom(form); });
-  }
+/**
+ * Перебудовує резерв так, щоб те, чого торкнулася людина, лишилося на місці екрана,
+ * а фокус повернувся на ту саму кнопку.
+ * @param {string} [anchorSel] селектор елемента-орієнтира; без нього — сам список
+ * @param {boolean} [refocus]
+ */
+function refreshReserve(anchorSel = '', refocus = false) {
+  const find = () => (anchorSel ? document.querySelector(anchorSel) : null) || document.getElementById('reserve-list');
+  keepInPlace(find(), () => {
+    const a = document.getElementById('reserve-list');
+    if (a) a.innerHTML = reserveListHtml();
+    const b = document.getElementById('reserve-insight');
+    if (b) b.innerHTML = insightHtml();
+    const fold = document.getElementById('add-fold');
+    if (fold) {
+      const open = /** @type {HTMLDetailsElement} */ (fold).open;
+      fold.innerHTML = `<summary>${icon('i-plus')}<span>Додати до резерву</span></summary>${addHtml()}`;
+      /** @type {HTMLDetailsElement} */ (fold).open = open;
+      bindCustomForm();
+    }
+  }, find);
   bindReserveInputs();
+  if (refocus && anchorSel) /** @type {HTMLElement|null} */ (document.querySelector(anchorSel))?.focus();
+}
+
+/** Форма власного предмета: кількість — таке саме числове поле, як усюди */
+function bindCustomForm() {
+  const form = /** @type {HTMLFormElement|null} */ (document.getElementById('custom-form'));
+  form?.addEventListener('submit', (e) => { e.preventDefault(); addCustom(form); });
+  const qty = /** @type {HTMLInputElement|null} */ (document.getElementById('c-qty'));
+  if (qty) bindNumField(qty, () => {});
 }
 
 function bindReserveInputs() {
   document.querySelectorAll('input[data-res]').forEach((el) => {
     const inp = /** @type {HTMLInputElement} */ (el);
-    inp.addEventListener('input', () => {
-      const n = parseNum(inp.value);
-      inp.setAttribute('aria-invalid', String(n == null || Number.isNaN(n) || n < 0));
+    // Порожнє поле після введення — показуємо збережену кількість, щоб на екрані було те, що записано
+    inp.addEventListener('blur', () => {
+      if (inp.value.trim() !== '') return;
+      const it = store.get().reserve.find((x) => x.id === inp.dataset.res);
+      if (it) inp.value = numVal(it.qty);
+    });
+    bindNumField(inp, (value) => {
+      const n = parseNum(value);
       if (n == null || Number.isNaN(n) || n < 0) return;
       store.update((d) => { const it = d.reserve.find((x) => x.id === inp.dataset.res); if (it) it.qty = Math.min(100000, n); });
+    });
+    // «Що вже можна зробити» вище за список оновлюється після введення — список під пальцем не зсувається
+    inp.addEventListener('change', () => {
       const b = document.getElementById('reserve-insight');
-      if (b) b.innerHTML = insightHtml();
+      if (b) keepInPlace(inp, () => { b.innerHTML = insightHtml(); });
     });
   });
 }
@@ -468,13 +496,16 @@ function addCustom(form) {
   const name = /** @type {HTMLInputElement} */ (form.querySelector('#c-name')).value.trim();
   if (!name) return;
   const cat = /** @type {HTMLSelectElement} */ (form.querySelector('#c-cat')).value;
-  const qty = parseNum(/** @type {HTMLInputElement} */ (form.querySelector('#c-qty')).value);
+  const qtyEl = /** @type {HTMLInputElement} */ (form.querySelector('#c-qty'));
+  const qty = parseNum(qtyEl.value);
+  // Хибну кількість не підміняємо мовчки одиницею — просимо виправити
+  if (qty != null && (Number.isNaN(qty) || qty < 0 || qty > 100000)) { qtyEl.setAttribute('aria-invalid', 'true'); qtyEl.focus(); app.toast('Перевірте кількість: число від 0 до 100 000'); return; }
   const unit = /** @type {HTMLInputElement} */ (form.querySelector('#c-unit')).value.trim() || 'шт';
-  const it = store.cleanItem({ name, cat, qty: qty == null || Number.isNaN(qty) ? 1 : qty, unit, ok: true });
+  const it = store.cleanItem({ name, cat, qty: qty == null ? 1 : qty, unit, ok: true });
   if (!it) return;
   store.update((d) => { d.reserve.push(it); });
   app.toast(`Додано: ${name}`);
-  refreshReserve();
+  refreshReserve('#add-fold');
 }
 
 /** @type {{item: import('./types').ReserveItem, index:number} | null} */
@@ -488,18 +519,18 @@ on({
     if (!it) return;
     store.update((d) => { d.reserve.push(it); });
     app.toast(`Додано: ${r.label}`);
-    refreshReserve();
+    refreshReserve('#add-fold');
   },
   'res-step': (el) => {
     store.update((d) => {
       const it = d.reserve.find((x) => x.id === el.dataset.id);
       if (it) it.qty = Math.max(0, Math.round((it.qty + Number(el.dataset.d)) * 10) / 10);
     });
-    refreshReserve();
+    refreshReserve(`[data-act="res-step"][data-id="${el.dataset.id}"][data-d="${el.dataset.d}"]`, true);
   },
   'res-ok': (el) => {
     store.update((d) => { const it = d.reserve.find((x) => x.id === el.dataset.id); if (it) it.ok = !it.ok; });
-    refreshReserve();
+    refreshReserve(`[data-act="res-ok"][data-id="${el.dataset.id}"]`, true);
   },
   'res-del': (el) => {
     const d = store.get();
@@ -537,13 +568,13 @@ function applyAndRender() {
 
 async function exportFile() {
   const payload = JSON.stringify(store.exportData(store.get()), null, 2);
-  const name = `avtonomno-full-backup-2.1-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `avtonomno-reserve-${new Date().toISOString().slice(0, 10)}.json`;
   const blob = new Blob([payload], { type: 'application/json' });
   try {
     const file = new File([blob], name, { type: 'application/json' });
     const nav = /** @type {any} */ (navigator);
     if (nav.canShare && nav.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
-      await nav.share({ files: [file], title: 'Автономно — повна резервна копія' });
+      await nav.share({ files: [file], title: 'Автономно — резерв' });
       return;
     }
   } catch (e) {
@@ -569,7 +600,7 @@ function importFile(file) {
     const res = store.importData(text, store.get());
     if ('error' in res) { app.toast(`Не вдалося імпортувати: ${res.error}`); return; }
     const cur = store.get().reserve.length;
-    if (!confirm(`Відновити дані з файлу? Запаси: ${cur} → ${res.counts.reserve}. Для повної копії також зміняться тема, калькулятори, налаштування й статистика. Активну тривогу не відновлюємо. Скасувати імпорт після підтвердження неможливо.`)) return;
+    if (!confirm(`Замінити поточні запаси (${cur}) даними з файлу (${res.counts.reserve})?`)) return;
     store.replaceAll(res.data);
     app.toast(`Імпортовано: ${res.counts.reserve} ${plural(res.counts.reserve, 'запис', 'записи', 'записів')}`);
     app.render();
@@ -618,7 +649,7 @@ function safetyView() {
 /** @param {any} sw */
 function offlineDetails(sw) {
   const status = {
-    ready: ['ok', 'Основні функції офлайн — готові', 'Код і дані застосунку доступні без мережі. Ілюстрації зберігаються окремо й можуть бути ще не завантажені.'],
+    ready: ['ok', 'Готово до роботи офлайн', 'Усі файли застосунку збережено на пристрої. Він відкриватиметься й без інтернету.'],
     partial: ['wait', 'Кешування ще триває', `Збережено ${sw.cached} з ${sw.total} файлів. Не закривайте застосунок, поки є інтернет.`],
     unsupported: ['off', 'Офлайн-режим недоступний', 'Цей браузер або спосіб відкриття не підтримує Service Worker. Відкрийте застосунок за адресою https:// у Safari чи Chrome.'],
     error: ['off', 'Не вдалося підтвердити офлайн-режим', 'Спробуйте перезавантажити сторінку, коли буде інтернет.'],
@@ -647,8 +678,7 @@ function aboutView(sw) {
       <p>Офлайн-помічник для життя без світла, газу, опалення, води чи зв’язку — і для хвилин повітряної тривоги. Обираєте проблему — і за кілька секунд бачите практичне, обґрунтоване й безпечне рішення з тим, що маєте.</p>
     </section>
     <section class="card"><h2>Офлайн-режим</h2>${pic('offline')}<div id="about-offline">${offlineDetails(sw)}</div>
-      <p class="hint">Для першого встановлення потрібен інтернет. Спершу зберігається код, а ілюстрації — окремо. Перевірте нижче, що завантажено все потрібне, та протестуйте в авіарежимі.</p>
-      <button class="btn ghost" type="button" data-act="cache-pics">Зберегти всі ілюстрації для офлайну</button>
+      <p class="hint">Для першого отримання застосунку потрібен інтернет. Після першого відкриття всі файли зберігаються на пристрої, і застосунок працює без мережі: рішення, калькулятори, резерв і нотатки.</p>
       <button class="btn ghost" type="button" data-act="recheck">${icon('i-sync')}<span>Перевірити ще раз</span></button>
     </section>
     <section class="card">
@@ -661,7 +691,10 @@ function aboutView(sw) {
     <section class="card">
       <h2>Поділіться із сусідами</h2>
       <p>Застосунок безкоштовний і працює без інтернету. Що більше людей у будинку знають, що робити, то спокійніше всім.</p>
-      <button class="btn ghost" type="button" data-act="share-app">${icon('i-share')}<span>Поділитися застосунком</span></button>
+      <div class="row-btns">
+        <a class="btn ghost" href="#/share">${icon('i-share')}<span>Показати QR-код</span></a>
+        <button class="btn ghost" type="button" data-act="share-app">${icon('i-share')}<span>Надіслати посилання</span></button>
+      </div>
     </section>
     <section class="card">
       <h2>Приватність</h2>
@@ -681,7 +714,6 @@ function aboutView(sw) {
 
 on({
   recheck: () => { app.render(); window.dispatchEvent(new Event('av-recheck')); },
-  'cache-pics': () => { window.dispatchEvent(new Event('av-cache-pics')); app.toast('Зберігаємо ілюстрації. Перевірте лічильник з інтернетом.'); },
   install: async () => {
     const ev = /** @type {any} */ (window).__avInstall;
     if (ev && ev.prompt) { ev.prompt(); try { await ev.userChoice; } catch { /* скасовано */ } }
