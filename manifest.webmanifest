@@ -56,6 +56,18 @@
       ]
     },
     {
+      "name": "Перша допомога",
+      "short_name": "Допомога",
+      "url": "./#/aid",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
       "name": "Мені холодно",
       "short_name": "Холодно",
       "url": "./#/need/heat",

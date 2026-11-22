@@ -1,10 +1,11 @@
 // @ts-check
-// Інструменти на весь екран: нічник, «Дихаємо разом», звуковий сигнал «Я тут».
+// Інструменти на весь екран: нічник, «Дихаємо разом», звуковий сигнал «Я тут», метроном реанімації.
 // Працюють офлайн. Поки інструмент відкритий, екран не гасне (Wake Lock, якщо браузер підтримує).
 
 import { icon, on } from './ui.js';
+import { CPR_RATE, CPR_BREATH_S, CPR_SWAP_S, cprBeat, cprInterval, clock } from './aid.js';
 
-/** @typedef {'light'|'breathe'|'signal'} ToolKind */
+/** @typedef {'light'|'breathe'|'signal'|'cpr'} ToolKind */
 
 /** @type {HTMLElement|null} */
 let el = null;
@@ -23,6 +24,13 @@ let pushed = false;
 let flashOn = false;
 /** Номер запуску світлового сигналу: старий ланцюжок таймерів зупиняється сам. */
 let flashGen = 0;
+/** Метроном реанімації: режим 30:2 і звук (налаштування живуть, поки відкрита сторінка). */
+let cprBreaths = false;
+let cprSound = true;
+/** Номер запуску метронома: старий ланцюжок таймерів зупиняється сам. */
+let cprGen = 0;
+/** Час початку реанімації: перемикання режиму не скидає хронометр. */
+let cprT0 = 0;
 
 /** Рівні нічника: від ледь помітного теплого до яскравого. */
 export const LIGHT_LEVELS = [
@@ -56,6 +64,7 @@ export function openTool(k) {
   if (k === 'light') renderLight();
   if (k === 'breathe') renderBreathe();
   if (k === 'signal') renderSignal();
+  if (k === 'cpr') renderCpr();
   document.body.appendChild(el);
   setInert(true);
   keepAwake();
@@ -67,6 +76,7 @@ export function closeTool(swap = false) {
   timers.forEach((t) => clearTimeout(t));
   timers = [];
   flashOn = false;
+  cprGen++;
   if (audio) { try { audio.close(); } catch { /* уже закрито */ } audio = null; }
   if (lock) { lock.release().catch(() => {}); lock = null; }
   el?.remove();
@@ -80,7 +90,7 @@ export function closeTool(swap = false) {
 
 /** Поки інструмент відкритий, решта сторінки недоступна для фокуса й читачів екрана. @param {boolean} v */
 function setInert(v) {
-  document.querySelectorAll('body > header, body > main, body > nav, body > .skip, #toast').forEach((n) => {
+  document.querySelectorAll('#scroll, body > nav, body > .skip, #toast').forEach((n) => {
     if (v) n.setAttribute('inert', ''); else n.removeAttribute('inert');
   });
 }
@@ -197,6 +207,113 @@ function beepBurst() {
   }
 }
 
+/* ───────────── Метроном реанімації ───────────── */
+
+/** Новий AudioContext або null, якщо звук недоступний. */
+function makeAudio() {
+  const AC = /** @type {any} */ (window).AudioContext || /** @type {any} */ (window).webkitAudioContext;
+  if (!AC) return null;
+  try { const a = new AC(); a.resume?.(); return a; } catch { return null; }
+}
+
+function renderCpr() {
+  if (!el) return;
+  el.setAttribute('aria-label', 'Метроном реанімації');
+  if (!audio) audio = makeAudio();
+  cprT0 = performance.now();
+  el.innerHTML = `<button type="button" class="tool-x" data-act="tool-close" aria-label="Закрити метроном" data-first>${icon('i-close')}</button>
+    <p class="cpr-t"><span id="cpr-t">0:00</span> · ${CPR_RATE} натискань за хвилину</p>
+    <div class="cpr-wrap" aria-hidden="true"><div class="cpr-c" id="cpr-c"><b id="cpr-n">1</b></div></div>
+    <p class="cpr-s" id="cpr-s" role="status">Натискайте в ритм</p>
+    <div class="cpr-ctl">
+      <button type="button" class="btn ghost" data-act="cpr-mode">${cprModeText()}</button>
+      <button type="button" class="btn ghost" data-act="cpr-sound"${audio ? '' : ' disabled'}>${!audio ? 'Звук недоступний' : cprSoundText()}</button>
+    </div>
+    <p class="tool-hint">Центр грудної клітки, руки прямі. Глибина 5–6 см, давайте грудям повністю розправитися. Телефонуйте 103 або 112 на гучному зв’язку.</p>`;
+  cprRun();
+}
+
+const cprModeText = () => (cprBreaths ? 'Режим: 30 натискань і 2 вдихи' : 'Режим: лише натискання');
+const cprSoundText = () => (cprSound ? 'Звук: увімкнено' : 'Звук: вимкнено');
+
+/** Запуск ритму: точний графік від старту, без накопичення похибки таймерів. */
+function cprRun() {
+  const gen = ++cprGen;
+  const step = cprInterval();
+  const t0 = cprT0 || performance.now();
+  let next = performance.now();
+  let n = 0;
+  /** Кінець паузи на вдихи (мс від performance.now) або 0. */
+  let pauseEnd = 0;
+  let swapShown = Math.floor((next - t0) / 1000 / CPR_SWAP_S);
+  let flip = false;
+  const $ = (/** @type {string} */ id) => document.getElementById(id);
+  const say = (/** @type {string} */ t) => { const s = $('cpr-s'); if (s && s.textContent !== t) s.textContent = t; };
+  const tick = () => {
+    if (!el || gen !== cprGen) return;
+    const now = performance.now();
+    const sec = (now - t0) / 1000;
+    const t = $('cpr-t');
+    if (t) t.textContent = clock(sec);
+    const swapNo = Math.floor(sec / CPR_SWAP_S);
+    if (pauseEnd) {
+      if (now < pauseEnd) {
+        const left = Math.ceil((pauseEnd - now) / 1000);
+        const nb = $('cpr-n');
+        if (nb) nb.textContent = String(left);
+        timers.push(setTimeout(tick, Math.min(250, pauseEnd - now)));
+        return;
+      }
+      pauseEnd = 0;
+      next = now;
+    }
+    n++;
+    const beat = cprBeat(n, cprBreaths);
+    const nb = $('cpr-n');
+    if (nb) nb.textContent = String(beat.k);
+    const c = $('cpr-c');
+    if (c) { c.classList.toggle('b1', flip); c.classList.toggle('b2', !flip); c.classList.remove('pause'); flip = !flip; }
+    click(beat.k === 1 ? 1300 : 1000);
+    if (swapNo > swapShown) {
+      swapShown = swapNo;
+      say('Минуло 2 хвилини. Поміняйтеся, якщо є кому');
+      click(600, 0.25);
+    } else if (beat.k === 1) {
+      say(cprBreaths ? 'Натискайте в ритм · 30 натискань, потім 2 вдихи' : 'Натискайте в ритм без зупинок');
+    }
+    if (beat.breathe) {
+      pauseEnd = now + step + CPR_BREATH_S * 1000;
+      timers.push(setTimeout(() => {
+        if (!el || gen !== cprGen) return;
+        say(`2 вдихи — разом до ${CPR_BREATH_S} секунд`);
+        const c2 = $('cpr-c');
+        if (c2) c2.classList.add('pause');
+      }, step));
+    }
+    next += step;
+    timers.push(setTimeout(tick, Math.max(0, next - performance.now())));
+  };
+  tick();
+}
+
+/** Короткий клац у ритм. @param {number} hz @param {number} [len] секунди */
+function click(hz, len = 0.06) {
+  if (!audio || !cprSound) return;
+  try {
+    const t = audio.currentTime + 0.01;
+    const o = audio.createOscillator();
+    const g = audio.createGain();
+    o.type = 'square';
+    o.frequency.value = hz;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(g).connect(audio.destination);
+    o.start(t);
+    o.stop(t + len + 0.02);
+  } catch { /* звук не обов’язковий */ }
+}
+
 on({
   tool: (b) => openTool(/** @type {ToolKind} */ (b.dataset.v)),
   'tool-close': () => closeTool(),
@@ -206,6 +323,15 @@ on({
     b.textContent = flashOn ? 'Вимкнути світловий сигнал' : 'Світловий сигнал SOS';
     flashGen++;
     if (flashOn) flashStep(0, flashGen); else el?.classList.remove('flash');
+  },
+  'cpr-mode': (b) => {
+    cprBreaths = !cprBreaths;
+    b.textContent = cprModeText();
+    cprRun();
+  },
+  'cpr-sound': (b) => {
+    cprSound = !cprSound;
+    b.textContent = cprSoundText();
   },
   'light-next': () => { lightLevel = (lightLevel + 1) % LIGHT_LEVELS.length; renderLight(); /** @type {HTMLElement|null} */ (el?.querySelector('.tool-area'))?.focus(); },
 });

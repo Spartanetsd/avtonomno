@@ -12,14 +12,14 @@ import {
   itemsFor, progress, applies, elapsedMin, durText, daysSince, bagDue, sheetText,
 } from './shelter.js';
 import { qrSvg } from './qr.js';
-import { app, on, esc, icon, note, pageHead, pic, sourcesList, bar, plural } from './ui.js';
+import { app, on, esc, icon, note, pageHead, pic, sourcesList, bar, plural, toTop } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./shelter.js').Block} Block */
 /** @typedef {import('./shelter.js').CheckGroup} CheckGroup */
 
-export const TOOL_ICON = { light: 'i-moon', breathe: 'i-wave', signal: 'i-sound' };
-export const TOOL_LABEL = { light: 'Нічник', breathe: 'Дихаємо разом', signal: 'Сигнал «Я\u00A0тут»' };
+export const TOOL_ICON = { light: 'i-moon', breathe: 'i-wave', signal: 'i-sound', cpr: 'i-heart' };
+export const TOOL_LABEL = { light: 'Нічник', breathe: 'Дихаємо разом', signal: 'Сигнал «Я\u00A0тут»', cpr: 'Метроном реанімації' };
 
 /** @param {string[]} a */
 const uniq = (a) => [...new Set(a)];
@@ -30,7 +30,7 @@ function srcLinks(keys) {
     .map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.org)}</a>`).join(', ');
 }
 
-/** Кнопка інструмента на весь екран. @param {'light'|'breathe'|'signal'} k @param {string} [cls] */
+/** Кнопка інструмента на весь екран. @param {'light'|'breathe'|'signal'|'cpr'} k @param {string} [cls] */
 function toolBtn(k, cls = 'pill') {
   return `<button class="${cls}" type="button" data-act="tool" data-v="${k}">${icon(TOOL_ICON[k])}<span>${esc(TOOL_LABEL[k])}</span></button>`;
 }
@@ -137,7 +137,10 @@ function inView() {
     <h2 class="h2">Поки сидимо</h2>
     ${WHILE_BLOCKS.map((b) => foldHtml(b, !!b.when && applies(b, c))).join('')}
     ${foldHtml(BLOCKED)}
-    <div class="rows"><a class="row" href="#/share">${icon('i-share')}<span>Показати сусідам QR-код застосунку</span>${icon('i-chev', 'end')}</a></div>
+    <div class="rows">
+      <a class="row" href="#/aid">${icon('i-aid')}<span>Перша допомога: кровотеча, реанімація, удавився</span>${icon('i-chev', 'end')}</a>
+      <a class="row" href="#/share">${icon('i-share')}<span>Показати сусідам QR-код застосунку</span>${icon('i-chev', 'end')}</a>
+    </div>
     <section class="card sos" aria-labelledby="sos-h"><h2 id="sos-h">Екстрені номери</h2>${callsHtml(['112', '101', '103'])}</section>
     <div class="row-btns sticky-actions">
       <button class="btn primary" type="button" data-act="sh-clear">${icon('i-check')}<span>Відбій тривоги</span></button>
@@ -161,6 +164,7 @@ function afterView() {
     <h2 class="h2">Що зробити після відбою</h2>
     <ol class="steps">${AFTER_STEPS.map((t, i) => `<li><button type="button" class="step" data-act="af-step" data-i="${i}" aria-pressed="${afterDone.has(i)}"><span class="box" aria-hidden="true">${icon('i-check')}</span><span class="num">${i + 1}</span><span class="txt">${esc(t)}</span></button></li>`).join('')}</ol>
     <button class="btn ghost wide" type="button" data-act="sh-share" data-v="after">${icon('i-share')}<span>Повідомити рідних, що все гаразд</span></button>
+    <div class="rows"><a class="row" href="#/aid">${icon('i-aid')}<span>Є поранені — перша допомога</span>${icon('i-chev', 'end')}</a></div>
     <section class="sec"><h2>Джерела</h2>${sourcesList(AFTER_SOURCES)}</section>
     <div class="row-btns sticky-actions even">
       <button class="btn primary" type="button" data-act="sh-finish">Завершити</button>
@@ -417,18 +421,18 @@ on({
     store.update((d) => { d.shelter.since = Date.now(); d.shelter.after = null; });
     afterDone.clear();
     app.go('#/shelter');
-    window.scrollTo(0, 0);
+    toTop();
   },
   'sh-clear': () => {
     store.update((d) => { if (d.shelter.since == null) d.shelter.since = Date.now(); d.shelter.after = Date.now(); });
     afterDone.clear();
     app.render();
-    window.scrollTo(0, 0);
+    toTop();
   },
   'sh-back': () => {
     store.update((d) => { d.shelter.after = null; });
     app.render();
-    window.scrollTo(0, 0);
+    toTop();
   },
   'sh-finish': () => {
     let n = 0;

@@ -6,6 +6,7 @@ import { PLACES, LIMITS, DURATIONS, BUDGETS, EQUIP, UTILITIES, RESERVE_CATS, RES
 import { MYTHS } from './solutions.js';
 import { reserveInsight } from './engine.js';
 import { RULES, SYMPTOMS, EMERGENCY, RISK_LEVELS, stateAlerts } from './safety.js';
+import { AID_PRINCIPLES } from './aid.js';
 import { fmt, num } from './calc.js';
 import { app, on, esc, icon, note, seg, chip, pageHead, plural, tempText, peopleList, pic, picImg, applyTheme, bindNumField, numFieldState, keepInPlace } from './ui.js';
 import { readiness, durText } from './shelter.js';
@@ -13,7 +14,7 @@ import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.2';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -622,6 +623,7 @@ function safetyView() {
       <ul class="calls">${EMERGENCY.map((e) => `<li><a class="call" href="tel:${e.num}">${icon('i-phone')}<b>${e.num}</b><span>${esc(e.label)}</span></a></li>`).join('')}</ul>
     </section>
     <div class="rows">
+      <a class="row" href="#/aid">${icon('i-aid')}<span>Перша допомога: кровотеча, реанімація, удавився</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/shelter">${icon('i-shelter')}<span>Повітряна тривога: що робити й режим «Я в укритті»</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/bag">${icon('i-bag')}<span>Тривожна валізка</span>${icon('i-chev', 'end')}</a>
     </div>
@@ -664,6 +666,7 @@ function offlineDetails(sw) {
       ${sw.version ? `<li>Версія кешу: <b>${esc(sw.version)}</b></li>` : ''}
       <li>Локальне сховище: <b>${store.isPersistent() ? 'працює' : 'недоступне'}</b></li>
     </ul>
+    ${sw.failed ? `<p class="ob off">${icon('i-info')}<b>Оновлення ${esc(sw.failed.version.replace('avtonomno-v', ''))} не встановилося</b></p><p class="muted">На сайті бракує файлів: ${sw.failed.missing.map((f) => esc(f)).join(', ')}. Завантажте їх у репозиторій — застосунок оновиться сам.</p>` : ''}
     ${sw.install ? `<button class="btn primary" type="button" data-act="install">${icon('i-download')}<span>Встановити застосунок</span></button>` : ''}`;
 }
 
@@ -676,6 +679,12 @@ function aboutView(sw) {
     <section class="card">
       <h2>Що це</h2>
       <p>Офлайн-помічник для життя без світла, газу, опалення, води чи зв’язку — і для хвилин повітряної тривоги. Обираєте проблему — і за кілька секунд бачите практичне, обґрунтоване й безпечне рішення з тим, що маєте.</p>
+    </section>
+    <section class="card" aria-labelledby="pr-h">
+      <h2 id="pr-h">Три принципи</h2>
+      <ol class="principles">${AID_PRINCIPLES.map((p) => `<li><span class="pn" aria-hidden="true">${p.n}</span><span><b>${esc(p.title)}</b><span>${esc(p.text)}</span></span></li>`).join('')}</ol>
+      <p class="hint">Порядок дій, який радять поліцейські-парамедики: оцініть небезпеку, оберіть безпечне рішення з того, що маєте, і дійте послідовно.</p>
+      <a class="btn ghost wide" href="./pro.html">${icon('i-info')}<span>Сайт проєкту</span></a>
     </section>
     <section class="card"><h2>Офлайн-режим</h2>${pic('offline')}<div id="about-offline">${offlineDetails(sw)}</div>
       <p class="hint">Для першого отримання застосунку потрібен інтернет. Після першого відкриття всі файли зберігаються на пристрої, і застосунок працює без мережі: рішення, калькулятори, резерв і нотатки.</p>

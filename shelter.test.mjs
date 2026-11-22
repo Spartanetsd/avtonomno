@@ -258,9 +258,9 @@ test('Service Worker кешує кожен модуль застосунку', (
   assert.ok(sw.includes(`avtonomno-v${pkg.version}'`), 'версія кешу збігається з package.json');
 });
 
-test('ярлики застосунку: укриття, холодно, валізка', () => {
+test('ярлики застосунку: укриття, перша допомога, холодно, валізка', () => {
   const m = JSON.parse(readFileSync(new URL('./manifest.webmanifest', import.meta.url), 'utf8'));
   const urls = (m.shortcuts || []).map((s) => s.url);
-  assert.deepEqual(urls, ['./#/shelter', './#/need/heat', './#/bag']);
+  assert.deepEqual(urls, ['./#/shelter', './#/aid', './#/need/heat', './#/bag']);
   for (const s of m.shortcuts) assert.ok(!/[Zz]/.test(s.name + s.short_name), s.name);
 });

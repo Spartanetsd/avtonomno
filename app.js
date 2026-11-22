@@ -8,12 +8,13 @@ import { buildContext, recommend, quickActions, planFromState, searchLibrary, fe
 import { stateAlerts, SYMPTOMS } from './safety.js';
 import { PHYSICS_BY_ID } from './physics.js';
 import { fmt } from './calc.js';
-import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList, pic, picImg, applyTheme, plural } from './ui.js';
+import { app, actions, on, esc, icon, illo, minutes, dots, levelBadge, riskBadge, costText, note, sourcesList, seg, chip, empty, pageHead, tempText, peopleList, pic, picImg, applyTheme, plural, scroller } from './ui.js';
 import { homePicKey } from './pics.js';
 import { screens } from './screens.js';
 import { calcScreens } from './calcui.js';
 import { readiness, sectionsFor, elapsedMin, durText } from './shelter.js';
 import { shelterScreens, readyHtml, updateChip, TOOL_ICON } from './shelterui.js';
+import { aidScreens } from './aidui.js';
 import './tools.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
@@ -51,6 +52,7 @@ const ROUTES = [
   [/^\/prep$/, () => shelterScreens.prep()],
   [/^\/sheet$/, () => shelterScreens.sheet()],
   [/^\/share$/, () => shelterScreens.share()],
+  [/^\/aid$/, () => aidScreens.aid()],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
@@ -82,16 +84,17 @@ function render() {
   if (!view) view = notFound();
   const samePath = path === lastPath;
   if (!samePath && Date.now() - toastAt > 800 && !toastEl.querySelector('[data-act="sw-update"], [data-act="res-undo"]')) hideToast();
-  const scrollY = window.scrollY;
+  const sc = scroller();
+  const scrollY = sc.scrollTop;
   main.innerHTML = view.html;
   document.title = view.title ? `${view.title} · Автономно` : 'Автономно';
   setTab(view.tab);
   updateChip(path);
   if (view.after) view.after();
   if (samePath) {
-    window.scrollTo(0, scrollY);
+    sc.scrollTop = scrollY;
   } else {
-    window.scrollTo(0, 0);
+    sc.scrollTop = 0;
     if (navCount > 0) {
       const h1 = /** @type {HTMLElement|null} */ (main.querySelector('h1'));
       if (h1) h1.focus({ preventScroll: true });
@@ -156,6 +159,7 @@ function viewHome() {
       <a class="row" href="#/season/${c.season}">${icon(SEASONS[c.season].icon)}<span>Сценарій сезону: ${esc(SEASONS[c.season].label)}</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/all">${icon('i-book')}<span>Усі рішення й пошук</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/saved">${icon('i-star')}<span>Збережене${d.favs.length ? ` <span class="muted">· ${d.favs.length}</span>` : ''}</span>${icon('i-chev', 'end')}</a>
+      <a class="row" href="#/aid">${icon('i-aid')}<span>Перша допомога</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/safety">${icon('i-shield')}<span>Безпека та екстрені номери</span>${icon('i-chev', 'end')}</a>
     </div>
     <p class="offline-line"><a href="#/about" class="ob-link" id="offline-badge">${offlineBadge()}</a></p>`,
@@ -438,7 +442,7 @@ function libResults() {
   const secs = sectionsFor(lib.q);
   const secHtml = secs.length ? `<div class="rows sec-hits" aria-label="Розділи">${secs.map((x) => x.href
     ? `<a class="row" href="${x.href}">${icon(x.icon)}<span>${esc(x.title)}</span>${icon('i-chev', 'end')}</a>`
-    : `<button class="row" type="button" data-act="tool" data-v="${x.tool}">${icon(TOOL_ICON[/** @type {'light'|'breathe'|'signal'} */ (x.tool)])}<span>${esc(x.title)}</span>${icon('i-chev', 'end')}</button>`).join('')}</div>` : '';
+    : `<button class="row" type="button" data-act="tool" data-v="${x.tool}">${icon(TOOL_ICON[/** @type {'light'|'breathe'|'signal'|'cpr'} */ (x.tool)])}<span>${esc(x.title)}</span>${icon('i-chev', 'end')}</button>`).join('')}</div>` : '';
   if (!res.length) return secHtml || empty('empty-search', 'Нічого не знайдено', 'Спробуйте інше слово або приберіть фільтри. Ми поруч.');
   return `${secHtml}<p class="count">Знайдено: ${res.length}</p><div class="list">${res.map((s) => {
     if ('myth' in s) return `<a class="card item myth" href="#/s/${s.id}"><div class="rec-top">${riskBadge('danger')}<span class="badge plain">${esc(NEEDS[s.need].label)}</span></div><h3>${esc(s.title)}</h3><p class="muted">Чому ні — і що робити замість</p></a>`;
@@ -602,9 +606,23 @@ function hideToast() {
 
 /* ───────────── Офлайн-режим (реальний стан Service Worker) ───────────── */
 
-/** @type {{status:'checking'|'ready'|'partial'|'unsupported'|'error', cached:number, total:number, picsCached:number, picsTotal:number, version:string, reg: ServiceWorkerRegistration|null, install: any}} */
-const swInfo = { status: 'checking', cached: 0, total: 0, picsCached: 0, picsTotal: 0, version: '', reg: null, install: null };
+/** @type {{status:'checking'|'ready'|'partial'|'unsupported'|'error', cached:number, total:number, picsCached:number, picsTotal:number, version:string, reg: ServiceWorkerRegistration|null, install: any, failed: {version:string, missing:string[]}|null}} */
+const swInfo = { status: 'checking', cached: 0, total: 0, picsCached: 0, picsTotal: 0, version: '', reg: null, install: null, failed: null };
 let reloading = false;
+/** Коли відкрито сторінку: оновлення, знайдене одразу після запуску, ставимо без питань. */
+const openedAt = Date.now();
+let lastUpdateCheck = Date.now();
+
+/** Щойно відкрили застосунок і ще нічого не вводять — нову версію можна ставити одразу. */
+function justOpened() {
+  const a = document.activeElement;
+  return Date.now() - openedAt < 6000 && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+}
+
+function offerUpdate() {
+  if (justOpened()) { applyUpdate(); return; }
+  app.toast('Доступна нова версія застосунку', { action: 'sw-update', label: 'Оновити' });
+}
 
 function offlineBadge() {
   const net = navigator.onLine ? '' : ' · зараз без інтернету';
@@ -636,12 +654,26 @@ async function initSW() {
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       nw?.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) app.toast('Доступна нова версія застосунку', { action: 'sw-update', label: 'Оновити' });
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) offerUpdate();
         if (nw.state === 'activated') checkOffline();
       });
     });
-    if (reg.waiting && navigator.serviceWorker.controller) app.toast('Доступна нова версія застосунку', { action: 'sw-update', label: 'Оновити' });
-    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'CACHED') checkOffline(); });
+    if (reg.waiting && navigator.serviceWorker.controller) offerUpdate();
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === 'CACHED') { swInfo.failed = null; checkOffline(); }
+      // Нова версія не встановилася: сервер не віддав частину файлів. Показуємо в «Про застосунок»
+      if (d.type === 'INSTALL_FAILED' && Array.isArray(d.missing) && d.missing.length && d.missing.length < d.total) {
+        swInfo.failed = { version: String(d.version || ''), missing: d.missing.slice(0, 12).map(String) };
+        refreshBadge();
+      }
+    });
+    // Телефон тримає застосунок у фоні днями: перевіряємо оновлення, коли до нього повертаються
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine || Date.now() - lastUpdateCheck < 30 * 60000) return;
+      lastUpdateCheck = Date.now();
+      reg.update().catch(() => {});
+    });
     navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) location.reload(); else checkOffline(); });
     await navigator.serviceWorker.ready;
     checkOffline();
@@ -744,7 +776,12 @@ document.addEventListener('focusin', (e) => {
 document.addEventListener('focusout', () => {
   setTimeout(() => {
     const a = document.activeElement;
-    if (!(a instanceof Element && a.matches(TYPE_SEL))) { document.documentElement.classList.remove('typing'); syncVV(); }
+    if (!(a instanceof Element && a.matches(TYPE_SEL))) {
+      document.documentElement.classList.remove('typing');
+      // Клавіатура могла зсунути сторінку: сторінка сама не прокручується, тож повертаємо її на місце
+      if (window.scrollY || (vv && vv.offsetTop)) window.scrollTo(0, 0);
+      syncVV();
+    }
   }, 80);
 });
 // Клавіатура може зсунути видиму область униз (visualViewport.offsetTop > 0) —

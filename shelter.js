@@ -4,6 +4,7 @@
 
 import { reserveInsight, norm } from './engine.js';
 import { EMERGENCY } from './safety.js';
+import { AID, AID_WORDS } from './aid.js';
 import { plural } from './ui.js';
 
 /** @typedef {import('./types').Ctx} Ctx */
@@ -337,8 +338,10 @@ export function bagDue(at, now) {
 
 /* ───────────── Швидкий перехід із пошуку ───────────── */
 
-/** @type {{href?:string, tool?:'light'|'breathe'|'signal', title:string, icon:string, words:string[]}[]} */
+/** @type {{href?:string, tool?:'light'|'breathe'|'signal'|'cpr', title:string, icon:string, words:string[]}[]} */
 export const SECTIONS = [
+  { href: '#/aid', title: 'Перша допомога: кровотеча, реанімація, удавився', icon: 'i-aid', words: [...AID_WORDS, ...AID.flatMap((t) => t.words)] },
+  { tool: 'cpr', title: 'Метроном для реанімації', icon: 'i-heart', words: ['реаніма', 'метроном', 'слр', 'масаж серц', 'не дих'] },
   { href: '#/shelter', title: 'Я в укритті: що робити під час тривоги', icon: 'i-shelter', words: ['укритт', 'підвал', 'тривог', 'сирен', 'обстріл', 'завал', 'вибух', 'двох стін', 'дві стіни', 'бомбосховищ', 'сховищ'] },
   { href: '#/bag', title: 'Тривожна валізка', icon: 'i-bag', words: ['валіз', 'тривожн', 'рюкзак', 'документ', 'евакуац'] },
   { href: '#/prep', title: 'Підготувати укриття заздалегідь', icon: 'i-list', words: ['підвал', 'укритт', 'облаштув', 'сусід', 'бомбосховищ'] },

@@ -57,6 +57,11 @@ export const SOURCES = {
   rubbleKids: { org: 'МВС, ДСНС і ЮНІСЕФ', title: 'Під завалами разом з дитиною: правила порятунку', url: 'https://www.kmu.gov.ua/news/pravyla-poriatunku-vid-dsns-ta-iunisef-shcho-robyty-iakshcho-vy-opynylysia-pid-zavalamy-razom-z-dytynoiu' },
   unicefShelter: { org: 'ЮНІСЕФ Україна', title: 'Як батькам підтримати дитину в укритті', url: 'https://www.unicef.org/ukraine/stories/how-to-support-a-child-in-a-shelter' },
   dpssPets: { org: 'Держпродспоживслужба', title: 'Укриття відкриті і для домашніх тварин', url: 'https://dpss.gov.ua/news/ukryttia-vidkryti-i-dlia-domashnikh-tvaryn-shcho-peredbachaie-zakonodavstvo' },
+  mohOrder: { org: 'МОЗ України', title: 'Наказ № 441: порядки домедичної допомоги при невідкладних станах', url: 'https://moz.gov.ua/uk/decrees/nakaz-moz-ukraini-vid-09032022--441-pro-zatverdzhennja-porjadkiv-nadannja-domedichnoi-dopomogi-osobam-pri-nevidkladnih-stanah' },
+  mohWar: { org: 'МОЗ України', title: 'Порядок домедичної допомоги в умовах бойових дій і воєнного стану', url: 'https://moz.gov.ua/uploads/8/40984-dn_441_09032022_dod29.pdf' },
+  mohCivil: { org: 'МОЗ України (портал Уряду)', title: 'Базові правила домедичної допомоги для цивільних', url: 'https://www.kmu.gov.ua/news/moz-nahaduie-bazovi-pravyla-domedychnoi-dopomohy' },
+  mohMyths: { org: 'МОЗ України', title: 'Міфи про допомогу при вдавленні та судомах', url: 'https://moz.gov.ua/uk/mifi-pro-nadannja-domedichnoi-dopomogi-u-razi-udavlennja-ta-pid-chas-sudom' },
+  ercBls: { org: 'Європейська рада з реанімації (ERC)', title: 'Базова реанімація: головне (українською)', url: 'https://www.cprguidelines.eu/assets/poster-translations/BLS-Infographics_ukr.pdf' },
   mdnPwa: { org: 'MDN', title: 'Прогресивні вебзастосунки (PWA)', url: 'https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/' },
   ghPages: { org: 'GitHub Docs', title: 'GitHub Pages', url: 'https://docs.github.com/en/pages/' },
 };

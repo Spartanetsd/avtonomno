@@ -242,7 +242,7 @@ export function keepInPlace(anchor, fn, refind) {
   const now = anchor && anchor.isConnected ? anchor : refind ? refind() : null;
   if (!now) return;
   const d = now.getBoundingClientRect().top - before;
-  if (Math.abs(d) > 1) window.scrollBy(0, d);
+  if (Math.abs(d) > 1) scroller().scrollTop += d;
 }
 
 /**
@@ -296,4 +296,14 @@ export function peopleList(s) {
   if (s.elderly) p.push(`${s.elderly} ${plural(s.elderly, 'літня людина', 'літні людини', 'літніх людей')}`);
   if (s.pets) p.push(`${s.pets} ${plural(s.pets, 'тварина', 'тварини', 'тварин')}`);
   return p.join(', ');
+}
+
+/** Прокручуваний вміст застосунку: сторінка сама не прокручується (див. styles.css, «Каркас»). */
+export function scroller() {
+  return document.getElementById('scroll') || document.scrollingElement || document.documentElement;
+}
+
+/** Перейти на початок екрана. */
+export function toTop() {
+  scroller().scrollTop = 0;
 }
