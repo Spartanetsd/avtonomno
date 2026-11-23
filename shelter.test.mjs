@@ -184,8 +184,8 @@ test('інваріант тривоги: на 300 випадкових ситу�
   }
 });
 
-test('сховище v2: нові поля, перевірка, міграція з v1, експорт та імпорт', () => {
-  assert.equal(SCHEMA, 2);
+test('сховище: поля валізки й укриття, перевірка, міграція з v1, експорт та імпорт', () => {
+  assert.equal(SCHEMA, 3, 'з 2.4 — схема 3 (модулі «Що маю» й «72 години»)');
   const d = defaults();
   assert.deepEqual(d.bag, []);
   assert.deepEqual(d.shelter, { since: null, after: null, count: 0, minutes: 0, last: null });
@@ -209,7 +209,7 @@ test('сховище v2: нові поля, перевірка, міграція
   // Дані 1.x без нових полів
   const v1 = { v: 1, reserve: [{ key: 'drinkWater', name: 'Питна вода', cat: 'water', qty: 12, unit: 'л', ok: true }], favs: ['heat-room'], notes: 'тест' };
   const m = cleanData(migrate(v1));
-  assert.equal(m.v, 2);
+  assert.equal(m.v, 3, 'дані 1.x мігрують одразу до поточної схеми');
   assert.equal(m.reserve.length, 1);
   assert.deepEqual(m.favs, ['heat-room']);
   assert.deepEqual(m.bag, []);

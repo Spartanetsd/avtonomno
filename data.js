@@ -62,6 +62,36 @@ export const SOURCES = {
   mohCivil: { org: 'МОЗ України (портал Уряду)', title: 'Базові правила домедичної допомоги для цивільних', url: 'https://www.kmu.gov.ua/news/moz-nahaduie-bazovi-pravyla-domedychnoi-dopomohy' },
   mohMyths: { org: 'МОЗ України', title: 'Міфи про допомогу при вдавленні та судомах', url: 'https://moz.gov.ua/uk/mifi-pro-nadannja-domedichnoi-dopomogi-u-razi-udavlennja-ta-pid-chas-sudom' },
   ercBls: { org: 'Європейська рада з реанімації (ERC)', title: 'Базова реанімація: головне (українською)', url: 'https://www.cprguidelines.eu/assets/poster-translations/BLS-Infographics_ukr.pdf' },
+  cdcStorm: { org: 'CDC', title: 'Як уберегтися під час і після зимової негоди', url: 'https://www.cdc.gov/winter-weather/safety/stay-safe-during-after-a-winter-storm-safety.html' },
+  readyWinter: { org: 'Ready.gov (FEMA)', title: 'Зимова негода: як зберегти тепло вдома', url: 'https://www.ready.gov/winter-ready' },
+  readyOutage: { org: 'Ready.gov (FEMA)', title: 'Відключення електроенергії: що робити', url: 'https://www.ready.gov/power-outages' },
+  usdaSnow: { org: 'USDA', title: 'Безпека їжі взимку без світла: не тримайте продукти в снігу', url: 'https://www.usda.gov/node/14596' },
+  doeTips: { org: 'U.S. DOE Energy Saver', title: 'Осінні й зимові поради з енергоощадності', url: 'https://www.energy.gov/energysaver/fall-and-winter-energy-saving-tips' },
+  doeWeather: { org: 'U.S. DOE Energy Saver', title: 'Ущільнювачі для дверей і вікон', url: 'https://www.energy.gov/energysaver/air-sealing-your-home/weatherstripping' },
+  doeLed: { org: 'U.S. DOE Energy Saver', title: 'Світлодіодне освітлення', url: 'https://www.energy.gov/energysaver/articles/led-lighting' },
+  nrelDaylight: { org: 'NREL', title: 'Посібник з денного освітлення будівель', url: 'https://docs.nrel.gov/docs/fy04osti/33938.pdf' },
+  lrcDaylight: { org: 'Lighting Research Center (RPI)', title: 'Денне світло й енергія', url: 'https://www.lrc.rpi.edu/programs/daylighting/dr_energyIssues.asp' },
+  nfpaCandle: { org: 'NFPA', title: 'Безпека зі свічками', url: 'https://www.michigan.gov/documents/lara/NFPA._Candle_tip_sheet._7.2019._MIPLogo._ECS._Final_663846_7.pdf' },
+  ontarioCandle: { org: 'Уряд Онтаріо', title: 'Пожежна безпека: свічки', url: 'https://www.ontario.ca/document/fire-safety-guidebook/candle-safety' },
+  shelterEsk: { org: 'Shelter Cluster Ukraine', title: 'Набір для аварійного укриття: склад і матеріали', url: 'https://s3.eu-west-1.amazonaws.com/sheltercluster.org/public/docs/ESK%20composition.%20Rev01_22_12_2023.pdf' },
+  shelterIec: { org: 'Shelter Cluster Ukraine', title: 'Посилений набір для аварійного укриття: як закрити отвори', url: 'https://s3.eu-west-1.amazonaws.com/sheltercluster.org/public/docs/Upgraded%20ESK%20%28ESK%2B%29%20IEC.pdf' },
+  oemToilet: { org: 'Oregon OEM', title: 'Два тижні готовності: санітарія', url: 'https://oregon.gov/oem/Documents/B2WR-Unit-5-Module-EN.pdf' },
+  multcoToilet: { org: 'Multnomah County', title: 'Аварійний туалет із двох відер', url: 'https://multco.us/file/84245/download' },
+  psuKraut: { org: 'Penn State Extension', title: 'Квашення: капуста й огірки', url: 'https://extension.psu.edu/lets-preserve-fermentation-sauerkraut-and-pickles' },
+  ndsuKraut: { org: 'NDSU Extension', title: 'Квашена капуста: безпечне приготування', url: 'https://www.ndsu.edu/agriculture/node/2254' },
+  cdcBotulism: { org: 'CDC', title: 'Ботулізм і домашні консерви', url: 'https://www.cdc.gov/botulism/prevention/home-canned-foods.html' },
+  epaCompost: { org: 'EPA', title: 'Компостування вдома', url: 'https://www.epa.gov/recycle/composting-home' },
+  uconnMicro: { org: 'UConn Extension', title: 'Мікрозелень', url: 'https://extension.uconn.edu/publication/microgreens/' },
+  msuMicro: { org: 'Mississippi State University Extension', title: 'Вирощування мікрозелені', url: 'https://extension.msstate.edu/sites/default/files/publications/P2857_WEBrev.pdf' },
+  umdContainers: { org: 'University of Maryland Extension', title: 'Овочі в контейнерах', url: 'https://extension.umd.edu/node/11586/' },
+  vtContainers: { org: 'Virginia Cooperative Extension', title: 'Овочевий город у контейнерах', url: 'https://pubs.ext.vt.edu/426/426-336.html' },
+  policeMines: { org: 'Національна поліція (портал Уряду)', title: 'Правила мінної безпеки', url: 'https://www.kmu.gov.ua/news/natsionalna-politsiia-ukrainy-nahaduie-pravyla-bezpeky-iaki-dopomozhut-vriatuvaty-zhyttia' },
+  dsnsMines: { org: 'ДСНС (портал Уряду)', title: 'Обережно, міни: правила безпеки', url: 'https://www.kmu.gov.ua/news/oberezhno-miny-riatuvalnyky-zaklykaiut-hromadian-ne-nekhtuvaty-pravylamy-bezpeky' },
+  dsnsFire: { org: 'ДСНС (портал Уряду)', title: 'Безпека в екосистемах у пожежонебезпечний період', url: 'https://www.kmu.gov.ua/news/dsns-zaklykaye-gromadyan-dotrimuvatisya-pravil-bezpeki-v-ekosistemah-pid-chas-pozhezhonebezpechnogo-periodu' },
+  smokeyFire: { org: 'Лісова служба США (Smokey Bear)', title: 'Безпечне багаття: як загасити', url: 'https://smokeybear.com/en/prevention-how-tos/campfire-safety' },
+  usfsLost: { org: 'Лісова служба США', title: 'Якщо ви заблукали', url: 'https://www.fs.usda.gov/visit/know-before-you-go/if-you-get-lost' },
+  npsLost: { org: 'Служба національних парків США', title: 'План на випадок, якщо заблукали', url: 'https://home.nps.gov/articles/gtgemergencyplan.htm' },
+  cdcRain: { org: 'CDC', title: 'Збирання дощової води і здоров’я', url: 'https://www.cdc.gov/drinking-water/about/collecting-rainwater-and-your-health-an-overview.html' },
   mdnPwa: { org: 'MDN', title: 'Прогресивні вебзастосунки (PWA)', url: 'https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/' },
   ghPages: { org: 'GitHub Docs', title: 'GitHub Pages', url: 'https://docs.github.com/en/pages/' },
 };
@@ -229,10 +259,9 @@ export const KEY_LABELS = {
   antiseptic: 'антисептик',
   sleepingBag: 'спальник',
   tent: 'намет',
+  canister: 'харчові ємності для води',
+  drinkWater: 'питна вода',
 };
-
-/** Звичайні побутові речі: вважаємо наявними, якщо в резерві їх не позначено як недоступні */
-export const COMMON_KEYS = ['blankets', 'bucket', 'bags'];
 
 /** Ключі, які не можна «купити»: це умови, а не речі */
 export const CONDITION_KEYS = ['grid', 'gas', 'tap', 'heatSource'];

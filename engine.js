@@ -4,7 +4,7 @@
 // порівняння (витрати, складність, ефект) → топ-3 з поясненням «чому».
 
 import { SOLUTIONS, MYTHS, BY_ID } from './solutions.js';
-import { KEY_LABELS, COMMON_KEYS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
+import { KEY_LABELS, CONDITION_KEYS, PLACES, SEASONS, NEED_ORDER, seasonByDate, costBand } from './data.js';
 import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 
 /** @typedef {import('./types').Ctx} Ctx */
@@ -15,13 +15,13 @@ import { stateAlerts, DRINK_PER_DAY } from './safety.js';
 /** @typedef {import('./types').Rec} Rec */
 /** @typedef {import('./types').Blocked} Blocked */
 
-const COMMON = new Set(COMMON_KEYS);
 const COND = new Set(CONDITION_KEYS);
 
 /**
  * Будує контекст із профілю, стану й резерву.
  * alarm — режим «Я в укритті»: надвір не можна, а температура вдома вже не про вас.
- * @param {{profile: import('./types').Profile, state: import('./types').DayState, reserve: import('./types').ReserveItem[], season?: import('./types').Season | null, now?: Date, alarm?: boolean}} d
+ * marked — що людина позначила в «Що маю» (є / немає); резерв, якщо там є запис, важливіший.
+ * @param {{profile: import('./types').Profile, state: import('./types').DayState, reserve: import('./types').ReserveItem[], season?: import('./types').Season | null, now?: Date, alarm?: boolean, marked?: {yes:string[], no:string[]}}} d
  * @returns {Ctx}
  */
 export function buildContext(d) {
@@ -41,6 +41,11 @@ export function buildContext(d) {
     }
   }
   for (const k of unavailable) if (!(d.reserve || []).some((it) => it.key === k && it.ok && it.qty > 0)) equip.delete(k);
+  if (d.marked) {
+    const inReserve = new Set((d.reserve || []).map((it) => it && it.key).filter(Boolean));
+    for (const k of d.marked.yes || []) if (!inReserve.has(k)) { equip.add(k); unavailable.delete(k); }
+    for (const k of d.marked.no || []) if (!inReserve.has(k) && !(profile.equip || []).includes(k)) { unavailable.add(k); equip.delete(k); }
+  }
 
   const limits = new Set(profile.limits || []);
   const alarm = d.alarm === true;
@@ -81,7 +86,9 @@ export function buildContext(d) {
 }
 
 /**
- * Чи доступний ресурс/умова.
+ * Чи доступний ресурс/умова. Річ доступна лише тоді, коли її підтверджено:
+ * у резерві (є й кількість понад 0), у налаштуваннях або в «Що маю».
+ * Невідоме не вважається наявним — навіть звичайні ковдри чи пакети (з 2.4).
  * @param {Ctx} ctx
  * @param {string} k
  */
@@ -91,10 +98,20 @@ export function has(ctx, k) {
     case 'gas': return ctx.gas;
     case 'tap': return ctx.tap;
     case 'heatSource': return ctx.heatSource;
-    default:
-      if (COMMON.has(k)) return !ctx.unavailable.has(k);
-      return ctx.equip.has(k);
+    default: return ctx.equip.has(k);
   }
+}
+
+/**
+ * Стан речі: є (підтверджено), немає (позначено відсутньою) чи невідомо.
+ * @param {Ctx} ctx @param {string} k
+ * @returns {'yes'|'no'|'unknown'}
+ */
+export function itemState(ctx, k) {
+  if (COND.has(k)) return has(ctx, k) ? 'yes' : 'no';
+  if (ctx.equip.has(k)) return 'yes';
+  if (ctx.unavailable.has(k)) return 'no';
+  return 'unknown';
 }
 
 /** @param {string} k */
@@ -128,22 +145,43 @@ export function feasibility(sol, ctx) {
   /** @type {string[]} */ const missing = [];
   /** @type {string[]} */ const conditionMissing = [];
   /** @type {string[]} */ const owned = [];
+  /** @type {string[]} */ const unverified = [];
   for (const k of sol.needs) {
-    if (has(ctx, k)) { if (!COND.has(k) && !COMMON.has(k)) owned.push(k); }
+    if (has(ctx, k)) { if (!COND.has(k)) owned.push(k); }
     else if (COND.has(k)) conditionMissing.push(k);
     else missing.push(k);
   }
   for (const g of sol.needsAny || []) {
     const hit = g.find((k) => has(ctx, k));
-    if (hit) { if (!COND.has(hit) && !COMMON.has(hit)) owned.push(hit); continue; }
+    if (hit) { if (!COND.has(hit)) owned.push(hit); continue; }
     const buyable = g.filter((k) => !COND.has(k));
     if (buyable.length) missing.push(buyable.join('|'));
     else conditionMissing.push(g.join('|'));
   }
+  // Речі, без яких рішення не працює, але які зазвичай є вдома (пакети, ковдри):
+  // не купуємо й не відкидаємо рішення, але й не вважаємо наявними — просимо перевірити
+  for (const g of sol.checks || []) {
+    const st = g.map((k) => itemState(ctx, k));
+    if (st.includes('yes')) owned.push(g[st.indexOf('yes')]);
+    else if (st.every((x) => x === 'no')) missing.push(g.join('|'));
+    else unverified.push(g.join('|'));
+  }
   const hasReq = sol.needs.length + (sol.needsAny ? sol.needsAny.length : 0) > 0;
   const satisfied = missing.length === 0 && conditionMissing.length === 0;
   const costNow = sol.cost === 0 ? 0 : satisfied && hasReq ? 0 : sol.cost;
-  return { ok: satisfied, missing, conditionMissing, owned, costNow };
+  return { ok: satisfied, missing, conditionMissing, owned, unverified, costNow };
+}
+
+/**
+ * Рішення можна виконати просто зараз: безпечно, доречно в цьому місці, усе потрібне
+ * підтверджено (нічого не бракує і нічого не лишилося «перевірити») і вкладається в бюджет.
+ * @param {Solution} sol @param {Ctx} ctx
+ */
+export function doableNow(sol, ctx) {
+  if (sol.places && sol.places[ctx.place] === 'na') return false;
+  if (!safetyGate(sol, ctx).ok) return false;
+  const f = feasibility(sol, ctx);
+  return f.ok && f.unverified.length === 0 && f.costNow <= ctx.budget;
 }
 
 /** @param {string} group */
@@ -213,6 +251,7 @@ export function scoreSolution(sol, ctx, mode, f) {
   if (f.costNow === 0) { s += 6; if (!f.owned.length) reasons.push('Без витрат'); }
   else s -= Math.min(14, Math.log10(f.costNow) * 3);
   if (!f.ok && f.missing.length) warnings.push(`Потрібно придбати: ${f.missing.map(groupLabel).join('; ')} (${costBand(sol.cost)})${ctx.limits.has('noOutside') ? ', коли це буде безпечно' : ''}`);
+  if (f.unverified.length) { s -= 4 * f.unverified.length; warnings.push(`Перевірте, чи є: ${f.unverified.map(groupLabel).join('; ')}`); }
 
   // Складність
   s -= (sol.difficulty - 1) * 3;
@@ -245,6 +284,9 @@ export function scoreSolution(sol, ctx, mode, f) {
   if (needsHeat && !ctx.power && !ctx.gas && !ctx.equip.has('station') && ctx.equip.has('burner') && ctx.burnerAllowed) {
     s -= 6;
     warnings.push('Ваше джерело тепла — пальник: лише коротко, з провітрюванням і детектором CO');
+  }
+  if (needsHeat && !ctx.power && !ctx.gas && ctx.equip.has('station')) {
+    warnings.push('Ваше джерело тепла — зарядна станція: перевірте, що її вихід (Вт) більший за потужність чайника чи плитки, а запас (Вт·год) не потрібен на зв’язок і світло');
   }
 
   return { s, reasons: uniq(reasons).slice(0, 3), warnings: uniq(warnings) };
@@ -311,7 +353,7 @@ export function recommend(need, ctx, mode = '5', limit = 3) {
       continue;
     }
     const sc = scoreSolution(sol, ctx, mode, f);
-    items.push({ sol, score: sc.s, reasons: sc.reasons, warnings: sc.warnings, missing: f.missing, costNow: f.costNow, owned: f.owned });
+    items.push({ sol, score: sc.s, reasons: sc.reasons, warnings: sc.warnings, missing: f.missing, unverified: f.unverified, costNow: f.costNow, owned: f.owned });
   }
   items.sort((a, b) => b.score - a.score || a.sol.prepMin - b.sol.prepMin || a.sol.id.localeCompare(b.sol.id));
   wouldHelp.sort((a, b) => b.sol.effect - a.sol.effect);
@@ -405,13 +447,7 @@ const ESSENTIALS = [
  * @param {Ctx} ctx
  */
 export function reserveInsight(ctx) {
-  const feasibleNow = SOLUTIONS.filter((s) => {
-    const rule = s.places && s.places[ctx.place];
-    if (rule === 'na') return false;
-    if (!safetyGate(s, ctx).ok) return false;
-    const f = feasibility(s, ctx);
-    return f.ok && f.costNow <= ctx.budget;
-  });
+  const feasibleNow = SOLUTIONS.filter((s) => doableNow(s, ctx));
   const essentials = ESSENTIALS.filter((e) => !e.when || e.when(ctx)).map((e) => ({ key: e.key, label: e.label, why: e.why, ok: e.test(ctx) }));
   const enabledByEquip = feasibleNow.filter((s) => feasibility(s, ctx).owned.length > 0);
   return { feasibleNow, enabledByEquip, essentials, missing: essentials.filter((e) => !e.ok) };
@@ -501,12 +537,7 @@ export function searchLibrary(f, ctx) {
     } else {
       if (f.season && !s.seasons.includes(/** @type {any} */ (f.season))) return false;
       if (f.level && s.level !== f.level) return false;
-      if (f.onlyNow) {
-        if (s.places && s.places[ctx.place] === 'na') return false;
-        if (!safetyGate(s, ctx).ok) return false;
-        const fe = feasibility(s, ctx);
-        if (!fe.ok || fe.costNow > ctx.budget) return false;
-      }
+      if (f.onlyNow && !doableNow(s, ctx)) return false;
     }
     if (!words.length) return true;
     const hay = norm([s.title, 'myth' in s ? s.why : s.problem, ...(s.tags || []), ...('myth' in s ? [] : s.materials)].join(' '));

@@ -14,7 +14,7 @@ import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '2.3.2';
+const VERSION = '2.4.0';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -314,6 +314,8 @@ function resourcesView() {
     <div class="rows">
       <a class="row two" href="#/state">${icon('i-thermo')}<span><b>Мій стан сьогодні</b><span class="muted">${esc(stateSummary(d))}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/setup/1">${icon('i-home')}<span><b>Моя ситуація</b><span class="muted">${esc(sit)}</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/72">${icon('i-hourglass')}<span><b>72 години</b><span class="muted">План і розрахунок води й енергії на три доби</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/have">${icon('i-kit')}<span><b>Що маю</b><span class="muted">${Object.keys(d.have.items).length ? `Позначено речей: ${Object.keys(d.have.items).length}` : 'Рішення з того, що є під рукою'}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/saved">${icon('i-star')}<span><b>Збережене</b><span class="muted">${nf ? `${nf} ${plural(nf, 'рішення', 'рішення', 'рішень')}` : 'Поки порожньо'}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/sheet">${icon('i-print')}<span><b>Пам’ятка для укриття</b><span class="muted">Роздрукувати для свого будинку</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/share">${icon('i-share')}<span><b>Поділитися з сусідами</b><span class="muted">QR-код застосунку на екрані</span></span>${icon('i-chev', 'end')}</a>

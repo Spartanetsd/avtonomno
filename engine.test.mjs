@@ -1,8 +1,8 @@
 // Тести рушія рекомендацій і безпеки. Запуск: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildContext, recommend, quickActions, planFromState, reserveInsight, searchLibrary, safetyGate } from './engine.js';
-import { SOLUTIONS, MYTHS } from './solutions.js';
+import { buildContext, recommend, quickActions, planFromState, reserveInsight, searchLibrary, safetyGate, feasibility, doableNow, has, itemState } from './engine.js';
+import { SOLUTIONS, MYTHS, BY_ID } from './solutions.js';
 import { stateAlerts } from './safety.js';
 import { NEED_ORDER, SEASON_ORDER, PLACES, LIMITS, EQUIP } from './data.js';
 
@@ -113,10 +113,87 @@ test('рекомендації змінюються залежно від рес
 });
 
 test('наявне обладнання робить рішення безкоштовним і проходить бюджет 0', () => {
-  const r = recommend('heat', ctxOf({ reserve: [{ id: 'h', key: 'hotBottle', name: 'Грілка', cat: 'warm', qty: 1, unit: 'шт', ok: true }] }), '30', 10);
+  const r = recommend('heat', ctxOf({ state: { power: true }, reserve: [{ id: 'h', key: 'hotBottle', name: 'Грілка', cat: 'warm', qty: 1, unit: 'шт', ok: true }] }), '30', 10);
   const hb = r.items.find((i) => i.sol.id === 'heat-bottle');
-  assert.ok(hb, 'грілка з резерву доступна');
+  assert.ok(hb, 'грілка з резерву доступна, коли є чим нагріти воду');
   assert.equal(hb.costNow, 0);
+});
+
+/* ───────────── Аудит 2.4: невідоме не вважається наявним ───────────── */
+
+test('аудит 2.4: грілка й термос потребують джерела тепла для гарячої води', () => {
+  const ctx = ctxOf({ reserve: [
+    { id: 'h', key: 'hotBottle', name: 'Грілка', cat: 'warm', qty: 1, unit: 'шт', ok: true },
+    { id: 't', key: 'thermos', name: 'Термос', cat: 'thermos', qty: 1, unit: 'шт', ok: true },
+  ] });
+  assert.equal(ctx.heatSource, false);
+  const heat = recommend('heat', ctx, '30', 20);
+  assert.ok(!heat.items.some((i) => i.sol.id === 'heat-bottle'), 'без джерела тепла грілку не радимо');
+  assert.ok(heat.blocked.some((b) => b.sol.id === 'heat-bottle' && /джерело тепла/.test(b.why)));
+  const food = recommend('food', ctx, '30', 20);
+  assert.ok(!food.items.some((i) => i.sol.id === 'food-thermos'));
+  assert.ok(food.blocked.some((b) => b.sol.id === 'food-thermos'));
+});
+
+test('аудит 2.4: звичайні речі (пакети, ковдри, відро) без підтвердження не вважаються наявними', () => {
+  const ctx = ctxOf({});
+  for (const k of ['bags', 'blankets', 'bucket']) {
+    assert.equal(has(ctx, k), false, k);
+    assert.equal(itemState(ctx, k), 'unknown', k);
+  }
+  const sanit = reserveInsight(ctx).essentials.find((e) => e.key === 'sanit');
+  assert.equal(sanit.ok, false, 'відро й пакети не підтверджено — у готовності «бракує»');
+  const yes = ctxOf({ reserve: [
+    { id: 'b', key: 'bucket', name: 'Відро', cat: 'other', qty: 1, unit: 'шт', ok: true },
+    { id: 'p', key: 'bags', name: 'Пакети', cat: 'other', qty: 1, unit: 'уп', ok: true },
+  ] });
+  assert.equal(reserveInsight(yes).essentials.find((e) => e.key === 'sanit').ok, true);
+});
+
+test('аудит 2.4: туалет без підтверджених пакетів — «Перевірте, чи є», а не «є»', () => {
+  const sol = BY_ID.get('hyg-toilet');
+  const unknown = feasibility(sol, ctxOf({}));
+  assert.deepEqual(unknown.unverified, ['bags']);
+  assert.ok(unknown.ok, 'рішення не відкидається, лише просить перевірити');
+  assert.ok(!unknown.owned.includes('bags'));
+  const r = recommend('hygiene', ctxOf({}), '30', 10);
+  const card = r.items.find((i) => i.sol.id === 'hyg-toilet');
+  assert.ok(card && card.warnings.some((w) => w.startsWith('Перевірте, чи є: міцні пакети')));
+  assert.ok(!card.reasons.some((x) => x.includes('Використовує те, що є')));
+  const no = feasibility(sol, ctxOf({ reserve: [{ id: 'p', key: 'bags', name: 'Пакети', cat: 'other', qty: 1, unit: 'уп', ok: false }] }));
+  assert.equal(no.ok, false);
+  assert.deepEqual(no.missing, ['bags']);
+  const yes = feasibility(sol, ctxOf({ reserve: [{ id: 'p', key: 'bags', name: 'Пакети', cat: 'other', qty: 2, unit: 'уп', ok: true }] }));
+  assert.deepEqual(yes.unverified, []);
+  assert.ok(yes.owned.includes('bags'));
+});
+
+test('аудит 2.4: «Можна зробити зараз» лише з підтвердженим потрібним', () => {
+  const ctx = ctxOf({ profile: { budget: 0 } });
+  assert.equal(doableNow(BY_ID.get('hyg-toilet'), ctx), false);
+  assert.equal(doableNow(BY_ID.get('heat-canopy'), ctx), false);
+  const ids = reserveInsight(ctx).feasibleNow.map((s) => s.id);
+  assert.ok(!ids.includes('hyg-toilet') && !ids.includes('water-store'));
+  assert.ok(ids.includes('heat-layers'), 'рішення без особливих речей лишаються');
+  const lib = searchLibrary({ onlyNow: true }, ctx).map((s) => s.id);
+  assert.deepEqual(lib.sort(), ids.sort());
+  const withBlanket = ctxOf({ reserve: [{ id: 'k', key: 'blankets', name: 'Ковдри', cat: 'warm', qty: 3, unit: 'шт', ok: true }] });
+  assert.equal(doableNow(BY_ID.get('heat-canopy'), withBlanket), true);
+});
+
+test('аудит 2.4: продукти не зберігають на балконі чи в снігу (USDA)', () => {
+  const sol = BY_ID.get('food-storage');
+  const txt = sol.steps.join(' ');
+  assert.ok(!/можна використовувати холодний балкон/.test(txt));
+  assert.ok(/Не виносьте продукти на балкон/.test(txt));
+  assert.ok(sol.sources.includes('usdaSnow'));
+});
+
+test('аудит 2.4: станція як єдине джерело тепла — попередження про вихід і запас', () => {
+  const ctx = ctxOf({ profile: { equip: ['station'] } });
+  const r = recommend('water', ctx, '30', 10);
+  const boil = r.items.find((i) => i.sol.id === 'water-boil');
+  assert.ok(boil && boil.warnings.some((w) => w.includes('вихід (Вт)') && w.includes('(Вт·год)')));
 });
 
 test('позначене «недоступно» в резерві прибирає рішення', () => {

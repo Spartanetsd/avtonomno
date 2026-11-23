@@ -4,7 +4,7 @@
 import * as store from './store.js';
 import { NEEDS, NEED_ORDER, SEASONS, SEASON_ORDER, LEVELS, seasonByDate } from './data.js';
 import { BY_ID, findAny } from './solutions.js';
-import { buildContext, recommend, quickActions, planFromState, searchLibrary, feasibility, safetyGate, keyLabel, groupLabel, has } from './engine.js';
+import { buildContext, recommend, quickActions, planFromState, searchLibrary, feasibility, safetyGate, keyLabel, groupLabel, has, itemState } from './engine.js';
 import { stateAlerts, SYMPTOMS } from './safety.js';
 import { PHYSICS_BY_ID } from './physics.js';
 import { fmt } from './calc.js';
@@ -15,6 +15,10 @@ import { calcScreens } from './calcui.js';
 import { readiness, sectionsFor, elapsedMin, durText } from './shelter.js';
 import { shelterScreens, readyHtml, updateChip, TOOL_ICON } from './shelterui.js';
 import { aidScreens } from './aidui.js';
+import { haveToReserveKeys } from './have.js';
+import { haveScreens } from './haveui.js';
+import { simScreens } from './simui.js';
+import { masterScreens } from './masterui.js';
 import './tools.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
@@ -25,8 +29,9 @@ const main = /** @type {HTMLElement} */ (document.getElementById('main'));
 
 export function ctx() {
   const d = store.get();
-  // У режимі «Я в укритті» підбір рахує місце укриттям: жодного вогню й горіння, надвір не можна
-  return buildContext({ profile: d.profile, state: d.state, reserve: d.reserve, season: d.settings.season || seasonByDate(new Date()), alarm: inShelter() });
+  // У режимі «Я в укритті» підбір рахує місце укриттям: жодного вогню й горіння, надвір не можна.
+  // Позначене в «Що маю» теж ураховується: невідоме не вважається наявним, а підтверджене — так.
+  return buildContext({ profile: d.profile, state: d.state, reserve: d.reserve, season: d.settings.season || seasonByDate(new Date()), alarm: inShelter(), marked: haveToReserveKeys(d.have.items) });
 }
 
 /** Режим «Я в укритті» ввімкнено (і відбою ще не було). */
@@ -53,6 +58,11 @@ const ROUTES = [
   [/^\/sheet$/, () => shelterScreens.sheet()],
   [/^\/share$/, () => shelterScreens.share()],
   [/^\/aid$/, () => aidScreens.aid()],
+  [/^\/have$/, () => haveScreens.list()],
+  [/^\/have\/(insulate|keepwarm|light|water|sanitation|repair)$/, (m) => haveScreens.problem(m[1])],
+  [/^\/72$/, () => simScreens.sim()],
+  [/^\/master$/, (_m, q) => masterScreens.list(q)],
+  [/^\/master\/([\w-]+)$/, (m) => masterScreens.lesson(m[1])],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
@@ -153,6 +163,11 @@ function viewHome() {
     ${live ? '' : alarmCard(d)}
     ${setup}
     <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
+    <nav class="mods" aria-label="Інструменти автономності">
+      <a class="mod" href="#/have">${icon('i-kit')}<span class="mod-t">Що маю</span><span class="mod-s">рішення з наявного</span></a>
+      <a class="mod" href="#/72">${icon('i-hourglass')}<span class="mod-t">72 години</span><span class="mod-s">план на три доби</span></a>
+      <a class="mod" href="#/master">${icon('i-hammer')}<span class="mod-t">Майстер предків</span><span class="mod-s">уроки з джерелами</span></a>
+    </nav>
     ${stateCard(d, c)}
     ${readyHtml(readiness(d, c), true)}
     <div class="rows">
@@ -215,6 +230,9 @@ function firstSentence(t) {
 
 /* ───────────── Швидке рішення ───────────── */
 
+/** Яка проблема «Що маю» відповідає потребі. @type {Partial<Record<import('./types').Need, string>>} */
+const HAVE_FOR = { heat: 'keepwarm', water: 'water', energy: 'light', hygiene: 'sanitation' };
+
 const MODES = [
   { v: '5', label: 'Є 5 хвилин' },
   { v: '30', label: 'Є 30 хвилин' },
@@ -261,7 +279,10 @@ function viewNeed(need, q) {
     ${help}
     ${signs}
     ${blocked}
-    <div class="rows"><a class="row" href="#/all?need=${need}">${icon('i-book')}<span>Усі рішення: ${esc(meta.label.toLowerCase())}</span>${icon('i-chev', 'end')}</a></div>`,
+    <div class="rows">
+      ${HAVE_FOR[need] ? `<a class="row" href="#/have/${HAVE_FOR[need]}">${icon('i-kit')}<span>Підібрати з того, що є під рукою</span>${icon('i-chev', 'end')}</a>` : ''}
+      <a class="row" href="#/all?need=${need}">${icon('i-book')}<span>Усі рішення: ${esc(meta.label.toLowerCase())}</span>${icon('i-chev', 'end')}</a>
+    </div>`,
   };
 }
 
@@ -332,7 +353,18 @@ function viewSolution(id) {
   const done = stepsDone[id] || new Set();
   const alt = BY_ID.get(s.altId);
   const ph = PHYSICS_BY_ID.get(s.physics.law);
-  const needKeys = [...s.needs.map((k) => ({ label: keyLabel(k), ok: has(c, k) })), ...(s.needsAny || []).map((g) => ({ label: groupLabel(g.join('|')), ok: g.some((k) => has(c, k)) }))];
+  /** @typedef {'yes'|'no'|'unknown'} St */
+  const yn = (/** @type {boolean} */ b) => /** @type {St} */ (b ? 'yes' : 'no');
+  /** @type {{label:string, st:St}[]} */
+  const needKeys = [
+    ...s.needs.map((k) => ({ label: keyLabel(k), st: yn(has(c, k)) })),
+    ...(s.needsAny || []).map((g) => ({ label: groupLabel(g.join('|')), st: yn(g.some((k) => has(c, k))) })),
+    // Невідоме не вважаємо наявним: просимо перевірити, а не пишемо «є»
+    ...(s.checks || []).map((g) => {
+      const st = g.map((k) => itemState(c, k));
+      return { label: groupLabel(g.join('|')), st: /** @type {St} */ (st.includes('yes') ? 'yes' : st.every((x) => x === 'no') ? 'no' : 'unknown') };
+    }),
+  ];
   const placeRule = s.places && s.places[c.place];
   return {
     title: s.title,
@@ -360,7 +392,8 @@ function viewSolution(id) {
     <section class="sec"><h2>Очікуваний результат</h2><p>${esc(s.result)}</p></section>
     <section class="sec"><h2>Що потрібно</h2>
       <ul class="mat">${s.materials.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
-      ${needKeys.length ? `<ul class="have">${needKeys.map((k) => `<li class="${k.ok ? 'ok' : 'no'}">${icon(k.ok ? 'i-check' : 'i-close')}<span>${esc(k.label)}: ${k.ok ? 'є' : 'бракує'}</span></li>`).join('')}</ul>` : ''}
+      ${needKeys.length ? `<ul class="have">${needKeys.map((k) => `<li class="${k.st === 'yes' ? 'ok' : k.st === 'no' ? 'no' : 'unk'}">${icon(k.st === 'yes' ? 'i-check' : k.st === 'no' ? 'i-close' : 'i-info')}<span>${esc(k.label)}: ${k.st === 'yes' ? 'є' : k.st === 'no' ? 'бракує' : 'не позначено — перевірте'}</span></li>`).join('')}</ul>
+      ${needKeys.some((k) => k.st === 'unknown') ? `<p class="hint">Позначте наявне в <a href="#/reserve">резерві</a> або в <a href="#/have">«Що маю»</a> — і підбір урахує це.</p>` : ''}` : ''}
     </section>
     <section class="sec"><h2>Кроки</h2>
       <ol class="steps">${s.steps.map((st, i) => `<li><button type="button" class="step" data-act="step" data-id="${s.id}" data-i="${i}" aria-pressed="${done.has(i)}"><span class="box" aria-hidden="true">${icon('i-check')}</span><span class="num">${i + 1}</span><span class="txt">${esc(st)}</span></button></li>`).join('')}</ol>

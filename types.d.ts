@@ -52,6 +52,8 @@ export interface Solution {
   materials: string[];
   needs: string[];
   needsAny?: string[][];
+  /** Речі, без яких рішення не працює, але які не купують: якщо не підтверджено — «Перевірте, чи є» */
+  checks?: string[][];
   uses: Uses;
   places?: Partial<Record<Place, PlaceRule>>;
   risk: Risk;
@@ -154,6 +156,10 @@ export interface AppData {
   shelter: ShelterLog;
   /** Особистий план на тривогу: де укриття й де зустрічається родина без зв’язку */
   plan: { shelter: string; meet: string };
+  /** «Що маю — те використовую» (2.4) */
+  have: ReturnType<typeof import('./have.js').haveDefaults>;
+  /** «72 години» (2.4) */
+  sim: import('./sim.js').SimState;
 }
 
 export interface Ctx {
@@ -199,6 +205,8 @@ export interface Rec {
   reasons: string[];
   warnings: string[];
   missing: string[];
+  /** Потрібні речі, наявність яких не підтверджено */
+  unverified: string[];
   costNow: number;
   owned: string[];
 }

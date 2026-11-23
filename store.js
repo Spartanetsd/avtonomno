@@ -3,12 +3,14 @@
 // перевірка даних, експорт та імпорт JSON. Дані не залишають пристрій.
 
 import { RESERVE_CATALOG, RESERVE_CATS, EQUIP, LIMITS, PLACES, DURATIONS, SEASON_ORDER } from './data.js';
+import { haveDefaults, cleanHave } from './have.js';
+import { simDefaults, cleanSim } from './sim.js';
 
 /** @typedef {import('./types').AppData} AppData */
 /** @typedef {import('./types').ReserveItem} ReserveItem */
 
 export const STORE_KEY = 'avtonomno.data';
-export const SCHEMA = 2;
+export const SCHEMA = 3;
 
 /** @returns {AppData} */
 export function defaults() {
@@ -26,6 +28,8 @@ export function defaults() {
     prep: [],
     shelter: { since: null, after: null, count: 0, minutes: 0, last: null },
     plan: { shelter: '', meet: '' },
+    have: haveDefaults(),
+    sim: simDefaults(),
   };
 }
 
@@ -140,6 +144,8 @@ export function cleanData(raw) {
   const pl = raw.plan || {};
   d.plan.shelter = typeof pl.shelter === 'string' ? pl.shelter.slice(0, 120) : '';
   d.plan.meet = typeof pl.meet === 'string' ? pl.meet.slice(0, 120) : '';
+  d.have = cleanHave(raw.have);
+  d.sim = cleanSim(raw.sim);
   return d;
 }
 
@@ -151,9 +157,17 @@ export function migrate(raw) {
   if (!raw || typeof raw !== 'object') return raw;
   const v = Number(raw.v) || 1;
   // v1 → v2: додано тривожну валізку, підготовку укриття й режим «Я в укритті».
-  // Нові поля заповнює cleanData типовими значеннями, старі дані не змінюються.
-  // Майбутні зміни додаються тут кроками: if (v < 3) { ... }
-  return { ...raw, v: Math.max(v, SCHEMA) };
+  // v2 → v3 (2.4): модулі «Що маю» (have) і «72 години» (sim). Кількість людей і запас питної
+  // води для симулятора беремо зі «Стану сьогодні», щоб не вводити двічі. Старі дані не змінюються.
+  const next = { ...raw };
+  if (v < 3 && (!raw.sim || typeof raw.sim !== 'object') && raw.state && typeof raw.state === 'object') {
+    const st = raw.state;
+    const int = (/** @type {unknown} */ x, /** @type {string} */ d) => (Number.isInteger(x) && /** @type {number} */ (x) >= 0 && /** @type {number} */ (x) <= 50 ? String(x) : d);
+    const w = Number(st.waterL);
+    next.sim = { adults: int(st.adults, '1'), kids: int(st.kids, '0'), elderly: int(st.elderly, '0'), ...(st.waterL != null && Number.isFinite(w) && w >= 0 && w <= 100000 ? { drink: String(w) } : {}) };
+  }
+  // Майбутні зміни додаються тут кроками: if (v < 4) { ... }
+  return { ...next, v: Math.max(v, SCHEMA) };
 }
 
 /* ───────────── Робота зі сховищем ───────────── */
@@ -263,6 +277,8 @@ export function exportData(d) {
     prep: d.prep,
     plan: d.plan,
     shelter: { count: d.shelter.count, minutes: d.shelter.minutes, last: d.shelter.last },
+    have: d.have,
+    sim: d.sim,
   };
 }
 
@@ -296,6 +312,9 @@ export function importData(text, current) {
     bagAt: raw.bagAt != null ? raw.bagAt : current.bagAt,
     prep: Array.isArray(raw.prep) ? raw.prep : current.prep,
     plan: raw.plan && typeof raw.plan === 'object' ? { ...current.plan, ...raw.plan } : current.plan,
+    // 2.4: модулі «Що маю» й «72 години» — з файлу, якщо вони там є (копії 2.3 їх не мають)
+    have: raw.have && typeof raw.have === 'object' ? raw.have : current.have,
+    sim: raw.sim && typeof raw.sim === 'object' ? raw.sim : current.sim,
     // Лічильник укриттів — з файлу, а поточний режим «Я в укритті» лишається як є
     shelter: raw.shelter && typeof raw.shelter === 'object'
       ? { ...current.shelter, count: raw.shelter.count ?? current.shelter.count, minutes: raw.shelter.minutes ?? current.shelter.minutes, last: raw.shelter.last ?? current.shelter.last }
