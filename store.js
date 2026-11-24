@@ -146,7 +146,14 @@ export function cleanData(raw) {
   d.plan.meet = typeof pl.meet === 'string' ? pl.meet.slice(0, 120) : '';
   d.have = cleanHave(raw.have);
   d.sim = cleanSim(raw.sim);
+  // 2.5: план відключення ще не має тривалості — беремо з профілю «На скільки готуватися»
+  if (!raw.sim || typeof raw.sim !== 'object' || raw.sim.days == null) d.sim.days = daysFromDuration(d.profile.duration);
   return d;
+}
+
+/** Тривалість плану відключення з профілю: 4–7 діб — тиждень, понад тиждень — 2 тижні. @param {string} dur @returns {3|7|14} */
+export function daysFromDuration(dur) {
+  return dur === 'd7plus' ? 14 : dur === 'd7' ? 7 : 3;
 }
 
 /**

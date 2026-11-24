@@ -3,8 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ITEMS, PROBLEMS, PROB_ORDER, RECIPES, evaluate, paramDefaults, parseParams, itemsFor, mergeItems, haveToReserveKeys, cleanHave, bagsNeeded, MOLD_DIY_M2 } from './have.js';
-import { simulate, cleanSim, simDefaults, sourceCalc, waterCalc, remainingAt, stageForElapsed, exportSim, importSim, newSource, STAGES, SCENARIOS } from './sim.js';
+import { simulate, cleanSim, simDefaults, sourceCalc, waterCalc, remainingAt, stageForElapsed, exportSim, importSim, newSource, horizonSummary, horizon, stagesFor, STAGES, SCENARIOS, HORIZONS } from './sim.js';
 import { DIRS, DIR_ORDER, LESSONS, lessonsOf } from './master.js';
+import { ACTIONS, applies } from './simacts.js';
 import { SOURCES } from './data.js';
 import { BY_ID, MYTHS } from './solutions.js';
 import { buildContext, recommend, has } from './engine.js';
@@ -187,15 +188,17 @@ test('що маю: очищення збереженого стану', () => {
 
 const sim = (o) => cleanSim({ ...simDefaults(), ...o });
 
-test('72 години: сім етапів 15 хв … 72 год, на кожному не більше трьох дій і трьох ризиків', () => {
-  assert.deepEqual(STAGES, [0.25, 1, 6, 12, 24, 48, 72]);
-  for (const scen of Object.keys(SCENARIOS)) {
-    const m = simulate(sim({ scen, adults: '2', kids: '1', drink: '6', tech: '10', meds: true, roomC: '11', infant: true, sources: [{ kind: 'station', cap: '1000', unit: 'Wh', pct: '70', k: '0.85', outW: '600' }], devices: [{ name: 'Роутер', w: '10', h: '24', src: 0 }, { name: 'Кисень', w: '300', h: '24', crit: true, src: -1 }] }));
-    assert.equal(m.stages.length, 7);
+test('план відключення: 3 доби — 7 етапів, тиждень — 9, 2 тижні — 11; на кожному не більше трьох дій і трьох ризиків', () => {
+  assert.deepEqual(STAGES, [0.25, 1, 6, 12, 24, 48, 72, 120, 168, 240, 336]);
+  assert.deepEqual(HORIZONS.map((h) => [h.d, stagesFor(h.d).length, stagesFor(h.d).at(-1)]), [[3, 7, 72], [7, 9, 168], [14, 11, 336]]);
+  for (const days of [3, 7, 14]) for (const scen of Object.keys(SCENARIOS)) {
+    const m = simulate(sim({ scen, days, adults: '2', kids: '1', drink: '6', tech: '10', meds: true, roomC: '11', infant: true, foodDays: '4', medsDays: '5', sources: [{ kind: 'station', cap: '1000', unit: 'Wh', pct: '70', k: '0.85', outW: '600' }], devices: [{ name: 'Роутер', w: '10', h: '24', src: 0 }, { name: 'Кисень', w: '300', h: '24', crit: true, src: -1 }] }));
+    assert.equal(m.stages.length, horizon(days).n);
     for (const st of m.stages) {
-      assert.ok(st.actions.length <= 3 && st.risks.length <= 3, `${scen} ${st.label}`);
-      for (const x of [...st.actions, ...st.risks]) assert.ok(!/NaN|undefined|Infinity/.test(x.text), x.text);
+      assert.ok(st.actions.length <= 3 && st.risks.length <= 3, `${days} ${scen} ${st.label}`);
+      for (const x of [...st.all, ...st.allRisks]) assert.ok(!/NaN|undefined|Infinity/.test(x.text), x.text);
     }
+    for (const x of horizonSummary(m)) assert.ok(!/NaN|undefined|Infinity/.test(x.text), x.text);
   }
 });
 
@@ -316,11 +319,45 @@ test('72 години: експорт та імпорт; неправильни�
   assert.equal(huge.startAt, null);
 });
 
+test('72 години ×10: бібліотека перевірених дій — унікальні, з джерелами, на всі етапи', () => {
+  assert.ok(ACTIONS.length >= 90, `дій: ${ACTIONS.length}`);
+  assert.equal(new Set(ACTIONS.map((a) => a.id)).size, ACTIONS.length);
+  for (const a of ACTIONS) {
+    assert.ok(a.s >= 0 && a.s < STAGES.length, a.id);
+    assert.ok(a.src.length && a.src.every((k) => SOURCES[k]), `${a.id}: джерело`);
+    assert.ok(/^[\w-]+$/.test(a.id) && a.t.length > 15, a.id);
+    assert.ok(/^[pwh]*$/.test(a.off || '') && /^[pwh]*$/.test(a.on || ''), a.id);
+  }
+  for (let i = 0; i < STAGES.length; i++) assert.ok(ACTIONS.some((a) => a.s === i), `етап ${i}`);
+  // Умови: порада «світло є, опалення немає» — лише в сценарії «Без опалення»
+  const heater = ACTIONS.find((a) => a.id === 'h-heater');
+  assert.equal(applies(heater, SCENARIOS.heat, {}), true);
+  assert.equal(applies(heater, SCENARIOS.all, {}), false);
+  assert.equal(applies(ACTIONS.find((a) => a.id === 'p-coldbatt'), SCENARIOS.power, {}), false, 'потрібні і світло, і тепло вимкнені');
+  assert.equal(applies(ACTIONS.find((a) => a.id === 'g-infant'), SCENARIOS.all, { infant: false }), false);
+});
+
+test('72 години ×10: повний перелік — у 10 разів більше за три головні дії, головні — найважливіші', () => {
+  const s = sim({ scen: 'all', adults: '2', kids: '1', elderly: '1', infant: true, petKg: '8', drink: '6', meds: true, cooler: true, sources: [{ kind: 'station', cap: '1000', unit: 'Wh', pct: '70', outW: '600' }], devices: [{ name: 'Роутер', w: '10', h: '24', src: 0 }] });
+  const m = simulate(s);
+  const total = new Set(m.stages.flatMap((st) => st.all.map((a) => a.id))).size;
+  assert.ok(total >= 7 * 3 * 4, `усього дій за 72 год: ${total}`);
+  for (const st of m.stages) {
+    assert.deepEqual(st.actions, st.all.slice(0, 3), 'угорі — три найважливіші з повного переліку');
+    assert.ok(st.all.every((a) => a.id && a.text), st.label);
+    assert.equal(new Set(st.all.map((a) => a.text)).size, st.all.length, 'без повторів');
+  }
+  assert.ok(m.stages[1].all.length >= 20, `етап 1 год: ${m.stages[1].all.length}`);
+  // Позначки «зроблено» зберігаються й очищаються
+  assert.deepEqual(cleanSim({ done: ['p-light', 'p-light', 'bad id!', 5, 'w-sep'] }).done, ['p-light', 'w-sep']);
+});
+
 /* ───────────── Майстер предків ───────────── */
 
 test('майстер предків: 7 напрямів, 21 урок, повний формат і джерела', () => {
   assert.deepEqual(DIR_ORDER, ['build', 'heat', 'light', 'food', 'grow', 'nature', 'water']);
-  assert.ok(LESSONS.length >= 21);
+  assert.ok(LESSONS.length >= 170, `уроків ${LESSONS.length}`);
+  for (const d of DIR_ORDER) assert.ok(lessonsOf(d).length >= 20, `напрям ${d}: ${lessonsOf(d).length}`);
   assert.equal(new Set(LESSONS.map((l) => l.id)).size, LESSONS.length);
   for (const d of DIR_ORDER) assert.ok(lessonsOf(d).length >= 3, d);
   for (const l of LESSONS) {
@@ -395,10 +432,122 @@ test('без латинської літери U+005A / U+007A у даних м�
   walk(simulate(sim({ adults: '2', drink: '5', sources: [{ kind: 'station', cap: '500', unit: 'Wh', pct: '50', outW: '300' }], devices: [{ name: 'Лампа', w: '5', h: '5', src: 0 }] })).stages);
   const bad = texts.filter((t) => LAT.test(t));
   assert.deepEqual(bad, []);
-  for (const f of ['have.js', 'sim.js', 'master.js', 'haveui.js', 'simui.js', 'masterui.js']) {
+  for (const f of ['have.js', 'sim.js', 'master.js', 'haveui.js', 'simui.js', 'masterui.js', 'lessons-build.js', 'lessons-heat.js', 'lessons-light.js', 'lessons-food.js', 'lessons-grow.js', 'lessons-nature.js', 'lessons-water.js']) {
     const src = readFileSync(new URL(`./${f}`, import.meta.url), 'utf8').replace(/https?:\/\/\S+/g, '');
     const strs = src.match(/'(?:[^'\\\n]|\\.)*'/g) || [];
     const bad2 = strs.filter((s) => LAT.test(s));
     assert.deepEqual(bad2, [], f);
   }
+});
+
+test('2.4.2: джерела без дублікатів ключів, кожне джерело уроку використане коректно', () => {
+  const src = readFileSync(new URL('./data.js', import.meta.url), 'utf8');
+  const a = src.indexOf('export const SOURCES');
+  const b = src.indexOf('\n};', a);
+  const keys = [...src.slice(a, b).matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
+  const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+  assert.deepEqual(dup, [], 'дублікати ключів у SOURCES');
+  for (const l of LESSONS) assert.equal(new Set(l.src).size, l.src.length, `${l.id}: повтор джерела`);
+});
+
+test('2.4.2: уроки з окремих файлів — у кеші офлайн і з усіма полями', async () => {
+  const sw = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
+  for (const f of ['build', 'heat', 'light', 'food', 'grow', 'nature', 'water']) assert.ok(sw.includes(`'./lessons-${f}.js'`), `sw.js: lessons-${f}.js`);
+  const { searchLessons } = await import('./masterui.js').catch(() => ({ searchLessons: null }));
+  if (searchLessons) {
+    assert.ok(searchLessons('кліщ', null).some((l) => l.id === 'tick'));
+    assert.ok(searchLessons('часник', 'grow').every((l) => l.dir === 'grow'));
+    assert.equal(searchLessons('   ', null).length, 0);
+  }
+});
+
+/* ───────────── План на тиждень і 2 тижні (2.5.0) ───────────── */
+
+test('план 7 і 14 діб: вода на весь план — потреба, дефіцит, поповнення в останній етап', () => {
+  const w7 = waterCalc(sim({ days: 7, adults: '2', drink: '3', tech: '4', norm: 'min' }));
+  assert.ok(Math.abs(w7.needH - 39.2) < 1e-9 && Math.abs(w7.deficitH - 36.2) < 1e-9);
+  assert.ok(Math.abs(w7.techNeedH - 14) < 1e-9 && Math.abs(w7.techDeficitH - 10) < 1e-9);
+  assert.ok(w7.steps.some((x) => x.includes('На 7 діб лише пиття: 5,6 × 7 = 39,2 л')));
+  const w14 = waterCalc(sim({ days: 14, adults: '2', drink: '3', norm: 'min' }));
+  assert.ok(Math.abs(w14.needH - 78.4) < 1e-9);
+  // 3 доби — як і раніше
+  const w3 = waterCalc(sim({ adults: '2', drink: '3', norm: 'min' }));
+  assert.ok(Math.abs(w3.needH - w3.need72) < 1e-9 && w3.steps.some((x) => x.includes('На 72 години')));
+  const m = simulate(sim({ scen: 'water', days: 7, adults: '2', drink: '3', tech: '4' }));
+  assert.ok(m.stages[1].all.some((a) => a.id === 'w-need' && a.text.includes('бракує 36,2 л')));
+  assert.ok(m.stages[8].all.some((a) => a.id === 'w-def7' && a.text.includes('на 7 діб бракує 36,2 л')));
+  assert.ok(!m.stages[6].all.some((a) => a.id === 'w-def72'), 'для тижня дефіцит — у кінці плану, не на 72 год');
+});
+
+test('план 7 і 14 діб: їжа й щоденні ліки — коли закінчаться й скільки бракує; помилки замість вигадок', () => {
+  const m = simulate(sim({ scen: 'all', days: 7, adults: '1', foodDays: '4', medsDays: '5' }));
+  assert.ok(m.stages[7].allRisks.some((r) => r.text.includes('Запас їжі закінчиться') && r.src.includes('femaFood')), 'їжа — 4 доби, етап «5 діб»');
+  assert.ok(m.stages[7].allRisks.some((r) => r.level === 'danger' && r.text.includes('Щоденні ліки закінчаться')));
+  assert.ok(m.stages[8].all.some((a) => a.id === 'f-def' && a.text.includes('бракує ще на 3 доби')));
+  assert.ok(m.stages[1].all.some((a) => a.id === 'm-short'));
+  const none = simulate(sim({ scen: 'all', medsDays: '0', foodDays: '0' }));
+  assert.ok(none.stages[0].allRisks.some((r) => r.text.includes('Щоденних ліків немає')));
+  assert.ok(none.stages[0].allRisks.some((r) => r.text.includes('Запасу їжі без холоду')));
+  const bad = simulate(sim({ foodDays: '-1', medsDays: 'тиждень' }));
+  assert.ok(bad.errors.some((e) => e.includes('Запас їжі')) && bad.errors.some((e) => e.includes('Щоденні ліки')));
+  assert.equal(bad.foodDays, null);
+});
+
+test('план 7 і 14 діб: «Чи вистачить» — вода, їжа, ліки, енергія лише з введеного', () => {
+  const m = simulate(sim({ scen: 'all', days: 14, adults: '2', drink: '100', tech: '10', foodDays: '14', medsDays: '7', sources: [{ kind: 'station', name: 'Станція', cap: '1000', unit: 'Wh', pct: '100', k: '0.85' }], devices: [{ name: 'Роутер', w: '10', h: '24', src: 0 }] }));
+  const sum = horizonSummary(m);
+  const by = (t) => sum.find((x) => x.text.startsWith(t));
+  assert.equal(by('Питна вода').level, 'ok', 'потрібно 78,4 л, є 100');
+  assert.equal(by('Технічна вода').level, 'caution');
+  assert.equal(by('Їжа').level, 'ok');
+  assert.equal(by('Щоденні ліки').level, 'danger');
+  assert.equal(by('«Станція»').level, 'caution', '850 Вт·год ÷ 240 Вт·год/добу ≈ 3,5 доби з 14');
+  assert.ok(m.stages[1].all.some((a) => a.id === 'src-long-0'));
+  const empty = horizonSummary(simulate(sim({ scen: 'all', days: 7 })));
+  assert.ok(empty.some((x) => x.level === 'info' && x.text.startsWith('Питна вода')), 'без запасу — просимо дані');
+  assert.ok(empty.some((x) => x.level === 'info' && x.text.startsWith('Їжа')));
+  assert.ok(!empty.some((x) => x.text.startsWith('Щоденні ліки')), 'без ліків — нічого не вигадуємо');
+  const heat = horizonSummary(simulate(sim({ scen: 'heat', days: 7, drink: '5' })));
+  assert.ok(!heat.some((x) => x.text.startsWith('Питна вода')), 'вода з крана є — не рахуємо дефіцит');
+});
+
+test('план 7 і 14 діб: етапи 5–14 діб мають перевірені дії; довгий холод і повернення послуг', () => {
+  for (const i of [7, 8, 9, 10]) assert.ok(ACTIONS.filter((a) => a.s === i).length >= 5, `етап ${i}`);
+  const m = simulate(sim({ scen: 'all', days: 14, adults: '1', kids: '1', roomC: '10' }));
+  assert.ok(m.stages[7].allRisks.some((r) => r.level === 'danger' && r.text.includes('5 діб у +10 °C')));
+  assert.ok(m.stages[9].allRisks.some((r) => r.text.includes('10 діб у +10 °C')));
+  const ids10 = m.stages[10].all.map((a) => a.id);
+  for (const id of ['w-flush14', 'p-back14', 'h-back14', 'g-twoweeks']) assert.ok(ids10.includes(id), id);
+  const three = simulate(sim({ scen: 'all', days: 3 }));
+  assert.ok(!three.stages.flatMap((st) => st.all).some((a) => a.id === 'w-flush14'), 'у плані на 3 доби — без етапів 5–14 діб');
+  assert.ok(applies(ACTIONS.find((a) => a.id === 'h-vuln5'), SCENARIOS.all, { vuln: false }) === false);
+});
+
+test('план 7 і 14 діб: збереження, відлік у межах плану, експорт та імпорт', () => {
+  assert.equal(cleanSim({ days: 'x' }).days, 3);
+  assert.equal(cleanSim({ days: 7 }).days, 7);
+  assert.equal(cleanSim({ days: '14' }).days, 14);
+  assert.equal(cleanSim({ days: 3, stage: 10 }).stage, 0, 'етап поза планом — на початок');
+  assert.equal(cleanSim({ days: 7, stage: 8 }).stage, 8);
+  assert.equal(cleanSim({ days: 7, stage: 9 }).stage, 0);
+  assert.equal(stageForElapsed(500), 6);
+  assert.equal(stageForElapsed(500, 7), 8);
+  assert.equal(stageForElapsed(500, 14), 10);
+  assert.equal(stageForElapsed(130, 14), 7);
+  const s = sim({ scen: 'power', days: 14, adults: '2', foodDays: '10', medsDays: '30', drink: '40' });
+  const back = importSim(JSON.stringify(exportSim(s)));
+  assert.ok(back.ok);
+  assert.deepEqual(back.sim, s);
+  assert.equal(cleanSim({ foodDays: '1'.repeat(40) }).foodDays.length, 12);
+  // Старі файли без тривалості — план на 3 доби
+  const old = importSim(JSON.stringify({ app: 'avtonomno', kind: 'sim72', sim: { scen: 'water', adults: '2' } }));
+  assert.ok(old.ok && old.sim.days === 3 && old.sim.foodDays === '');
+});
+
+test('план відключення: тривалість за замовчуванням — з профілю «На скільки готуватися»', () => {
+  const base = defaults();
+  assert.equal(cleanData({ ...base, profile: { ...base.profile, duration: 'd7plus' }, sim: undefined }).sim.days, 14);
+  assert.equal(cleanData({ ...base, profile: { ...base.profile, duration: 'd7' }, sim: { scen: 'all' } }).sim.days, 7, 'дані 2.4 без тривалості');
+  assert.equal(cleanData({ ...base, profile: { ...base.profile, duration: 'h12' }, sim: { scen: 'all' } }).sim.days, 3);
+  assert.equal(cleanData({ ...base, profile: { ...base.profile, duration: 'd7plus' }, sim: { scen: 'all', days: 3 } }).sim.days, 3, 'вибір людини важливіший');
 });

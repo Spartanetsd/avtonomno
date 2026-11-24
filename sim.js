@@ -1,15 +1,32 @@
 // @ts-check
-// «72 години» — офлайн-симулятор перших трьох діб без світла, води чи опалення.
-// Точні розрахунки лише з введених даних: вода (запас, добова потреба, залишок, дефіцит),
+// «План відключення» — офлайн-симулятор на 3 доби, тиждень чи 2 тижні без світла, води чи опалення.
+// Точні розрахунки лише з введених даних: вода (запас, добова потреба, залишок, дефіцит на весь план),
+// їжа й щоденні ліки (на скільки діб вистачить),
 // енергія (Вт·год, фактичний заряд, ККД, навантаження у Вт, час), сумісність (вихід джерела
 // й споживання приладу), безпека продуктів без холодильника — за CDC, Ready.gov і USDA.
 // Чого не знаємо — не вигадуємо: просимо дані замість обіцянок.
 
 import { num, fmt, fmtHours, daysText, WATER_PRESETS, PET_L_PER_KG } from './calc.js';
+import { ACTIONS, applies } from './simacts.js';
 
-/** Етапи часової шкали, години. */
-export const STAGES = [0.25, 1, 6, 12, 24, 48, 72];
-export const STAGE_LABEL = ['15 хв', '1 год', '6 год', '12 год', '24 год', '48 год', '72 год'];
+/** Етапи часової шкали, години: перші 72 години, далі — доби (до двох тижнів). */
+export const STAGES = [0.25, 1, 6, 12, 24, 48, 72, 120, 168, 240, 336];
+export const STAGE_LABEL = ['15 хв', '1 год', '6 год', '12 год', '24 год', '48 год', '72 год', '5 діб', '7 діб', '10 діб', '14 діб'];
+
+/**
+ * Тривалість плану: скільки діб і скільки етапів шкали входить.
+ * Тиждень і два тижні — за порадами мати запас на 2 тижні (FEMA, CDC, штати Орегон і Вашингтон).
+ */
+export const HORIZONS = /** @type {const} */ ([
+  { d: 3, label: '3 доби', long: '72 години', short: '72 год', n: 7 },
+  { d: 7, label: 'Тиждень', long: '7 діб', short: '7 діб', n: 9 },
+  { d: 14, label: '2 тижні', long: '14 діб', short: '14 діб', n: 11 },
+]);
+/** @typedef {3|7|14} Days */
+/** Параметри тривалості; невідоме — 3 доби. @param {number} days */
+export const horizon = (days) => HORIZONS.find((h) => h.d === days) || HORIZONS[0];
+/** Етапи шкали для тривалості. @param {number} days */
+export const stagesFor = (days) => STAGES.slice(0, horizon(days).n);
 
 /** Сценарії: що зникло. */
 export const SCENARIOS = {
@@ -41,24 +58,26 @@ const MAX_SOURCES = 6, MAX_DEVICES = 16;
  * @typedef {{kind:keyof typeof SOURCE_KINDS, name:string, cap:string, unit:'mAh'|'Ah'|'Wh', v:string, pct:string, k:string, outW:string}} SimSource
  * @typedef {{name:string, w:string, h:string, crit:boolean, src:number}} SimDevice
  * @typedef {{
- *   scen:Scen, stage:number, startAt:number|null,
+ *   scen:Scen, days:Days, stage:number, startAt:number|null,
  *   adults:string, kids:string, elderly:string, infant:boolean, petKg:string,
  *   drink:string, tech:string, norm:'min'|'basic'|'std', hot:boolean,
  *   fridge:boolean, icebox:'full'|'half'|'none', cooler:boolean, meds:boolean,
- *   roomC:string,
- *   sources:SimSource[], devices:SimDevice[]
+ *   foodDays:string, medsDays:string, roomC:string,
+ *   sources:SimSource[], devices:SimDevice[],
+ *   done:string[]
  * }} SimState
  */
 
 /** @returns {SimState} */
 export function simDefaults() {
   return {
-    scen: 'all', stage: 0, startAt: null,
+    scen: 'all', days: 3, stage: 0, startAt: null,
     adults: '1', kids: '0', elderly: '0', infant: false, petKg: '0',
     drink: '', tech: '', norm: 'min', hot: false,
     fridge: true, icebox: 'half', cooler: false, meds: false,
-    roomC: '',
+    foodDays: '', medsDays: '', roomC: '',
     sources: [], devices: [],
+    done: [],
   };
 }
 
@@ -74,10 +93,12 @@ export function cleanSim(raw) {
   const d = simDefaults();
   if (!raw || typeof raw !== 'object') return d;
   d.scen = typeof raw.scen === 'string' && raw.scen in SCENARIOS ? /** @type {Scen} */ (raw.scen) : 'all';
-  d.stage = Number.isInteger(raw.stage) && raw.stage >= 0 && raw.stage < STAGES.length ? raw.stage : 0;
+  const dd = Number(raw.days);
+  d.days = dd === 7 || dd === 14 ? dd : 3;
+  d.stage = Number.isInteger(raw.stage) && raw.stage >= 0 && raw.stage < horizon(d.days).n ? raw.stage : 0;
   const t = Number(raw.startAt);
   d.startAt = raw.startAt != null && Number.isFinite(t) && t > 946684800000 && t < 7258118400000 ? Math.round(t) : null;
-  for (const k of /** @type {const} */ (['adults', 'kids', 'elderly', 'petKg', 'drink', 'tech', 'roomC'])) if (raw[k] != null) d[k] = s12(raw[k]);
+  for (const k of /** @type {const} */ (['adults', 'kids', 'elderly', 'petKg', 'drink', 'tech', 'foodDays', 'medsDays', 'roomC'])) if (raw[k] != null) d[k] = s12(raw[k]);
   d.infant = raw.infant === true;
   d.norm = raw.norm === 'basic' || raw.norm === 'std' ? raw.norm : 'min';
   d.hot = raw.hot === true;
@@ -92,6 +113,7 @@ export function cleanSim(raw) {
       return { kind, name: s12(x.name, 40) || SOURCE_KINDS[kind].label, cap: s12(x.cap), unit: /** @type {'mAh'|'Ah'|'Wh'} */ (unit), v: s12(x.v), pct: s12(x.pct), k: s12(x.k), outW: s12(x.outW) };
     });
   }
+  if (Array.isArray(raw.done)) d.done = [...new Set(raw.done.filter((x) => typeof x === 'string' && /^[\w-]{1,40}$/.test(x)))].slice(0, 400);
   if (Array.isArray(raw.devices)) {
     d.devices = raw.devices.filter((x) => x && typeof x === 'object').slice(0, MAX_DEVICES).map((x) => {
       const src = Number(x.src);
@@ -142,14 +164,22 @@ export function waterCalc(s) {
   const techHours = tech == null ? null : techDay > 0 ? (tech / techDay) * 24 : Infinity;
   const need72 = drinkDay * 3;
   const deficit72 = drink == null ? null : Math.max(0, need72 - drink);
+  // Увесь план: 3 доби, тиждень чи два тижні
+  const H = horizon(s.days);
+  const needH = drinkDay * H.d;
+  const deficitH = drink == null ? null : Math.max(0, needH - drink);
+  const techNeedH = techDay * H.d;
+  const techDeficitH = tech == null ? null : Math.max(0, techNeedH - tech);
   const steps = [
     `Пиття на добу: ${people} × ${fmt(preset.drink)} л${s.hot ? ' × 2 (спека)' : ''}${petDay > 0 ? ` + тварини ${fmt(petDay)} л` : ''} = ${fmt(drinkDay)} л`,
     `Технічна на добу (їжа й гігієна, норма «${preset.label.toLowerCase()}»): ${people} × ${fmt(preset.cook + preset.hygiene)} л = ${fmt(techDay)} л`,
-    `На 72 години лише пиття: ${fmt(drinkDay)} × 3 = ${fmt(need72)} л`,
+    `На ${H.long} лише пиття: ${fmt(drinkDay)} × ${H.d} = ${fmt(needH)} л`,
   ];
+  if (H.d > 3 && techDay > 0) steps.push(`Технічна на ${H.long}: ${fmt(techDay)} × ${H.d} = ${fmt(techNeedH)} л`);
   if (drink != null) steps.push(`Питної вистачить на: ${fmt(drink)} л ÷ ${fmt(drinkDay)} л/добу = ${drinkHours === Infinity ? '∞' : daysText((drinkHours || 0) / 24)}`);
-  if (deficit72 != null) steps.push(deficit72 > 0 ? `Прогноз дефіциту за 72 год: ${fmt(need72)} − ${fmt(drink || 0)} = ${fmt(deficit72)} л` : 'Дефіциту питної води за 72 год немає');
-  return { ok: true, people, petDay, preset, drinkDay, techDay, drink, tech, drinkHours, techHours, need72, deficit72, steps };
+  if (deficitH != null) steps.push(deficitH > 0 ? `Прогноз дефіциту за ${H.short}: ${fmt(needH)} − ${fmt(drink || 0)} = ${fmt(deficitH)} л` : `Дефіциту питної води за ${H.short} немає`);
+  if (H.d > 3 && techDeficitH != null && techDay > 0) steps.push(techDeficitH > 0 ? `Технічної бракує за ${H.short}: ${fmt(techNeedH)} − ${fmt(tech || 0)} = ${fmt(techDeficitH)} л` : `Технічної води на ${H.long} вистачає`);
+  return { ok: true, people, petDay, preset, drinkDay, techDay, drink, tech, drinkHours, techHours, need72, deficit72, days: H.d, needH, deficitH, techNeedH, techDeficitH, steps };
 }
 
 /**
@@ -224,15 +254,32 @@ export function simulate(s) {
   const roomC = roomRaw == null || Number.isNaN(roomRaw) || roomRaw < -40 || roomRaw > 60 ? null : roomRaw;
   /** @type {string[]} */ const errors = [];
   if (roomRaw != null && roomC == null) errors.push('Температура в кімнаті: число від −40 до +60 °C.');
+  // Їжа без холоду й щоденні ліки: на скільки діб вистачить — оцінка людини, не вигадуємо
+  const dayField = (/** @type {string} */ v, /** @type {string} */ label) => {
+    const n = opt(v);
+    if (n == null) return null;
+    if (Number.isNaN(n) || n < 0 || n > 365) { errors.push(`${label}: число діб від 0 до 365.`); return null; }
+    return n;
+  };
+  const foodDays = dayField(s.foodDays, 'Запас їжі');
+  const medsDays = dayField(s.medsDays, 'Щоденні ліки');
+  const H = horizon(s.days);
   if (!water.ok) errors.push(...(water.errors || []));
   for (const x of sources) errors.push(...x.calc.errors.map((e) => `${x.src.name}: ${e}`));
   const vulnerable = (opt(s.kids) || 0) > 0 || (opt(s.elderly) || 0) > 0 || s.infant;
-  const stages = STAGES.map((t, i) => stageAt(i, t, { s, sc, water, sources, loose, roomC, vulnerable }));
-  return { ok: errors.length === 0, errors, scen: sc, water, sources, loose, roomC, vulnerable, stages };
+  /** Умови з ваших даних для бібліотеки порад */
+  const flags = {
+    fridge: s.fridge, cooler: s.cooler, icebox: s.icebox !== 'none', cold: s.fridge || s.icebox !== 'none', meds: s.meds,
+    infant: s.infant, kids: (opt(s.kids) || 0) > 0, elderly: (opt(s.elderly) || 0) > 0, pets: (opt(s.petKg) || 0) > 0, hot: s.hot,
+    src: s.sources.length > 0, crit: s.devices.some((d) => d.crit), noRoomC: roomC == null, vuln: vulnerable,
+  };
+  const list = stagesFor(H.d);
+  const stages = list.map((t, i) => stageAt(i, t, { s, sc, water, sources, loose, roomC, vulnerable, flags, H, last: list.length - 1, foodDays, medsDays }));
+  return { ok: errors.length === 0, errors, scen: sc, horizon: H, water, sources, loose, roomC, vulnerable, foodDays, medsDays, stages };
 }
 
 /**
- * @typedef {{text:string, src:string[], pri:number, level?:'danger'|'caution'|'info'}} Item
+ * @typedef {{id:string, text:string, src:string[], pri:number, level?:'danger'|'caution'|'info'}} Item
  */
 
 /**
@@ -241,32 +288,23 @@ export function simulate(s) {
  * @param {any} m
  */
 function stageAt(i, t, m) {
-  const { s, sc, water, sources, loose, roomC, vulnerable } = m;
+  const { s, sc, water, sources, loose, roomC, vulnerable, flags, H, last, foodDays, medsDays } = m;
   /** @type {Item[]} */ const acts = [];
   /** @type {Item[]} */ const risks = [];
-  const act = (/** @type {number} */ pri, /** @type {string} */ text, /** @type {string[]} */ src) => acts.push({ pri, text, src });
-  const risk = (/** @type {number} */ pri, /** @type {'danger'|'caution'|'info'} */ level, /** @type {string} */ text, /** @type {string[]} */ src) => risks.push({ pri, level, text, src });
+  const act = (/** @type {number} */ pri, /** @type {string} */ text, /** @type {string[]} */ src, /** @type {string} */ id) => acts.push({ id, pri, text, src });
+  const risk = (/** @type {number} */ pri, /** @type {'danger'|'caution'|'info'} */ level, /** @type {string} */ text, /** @type {string[]} */ src) => risks.push({ id: '', pri, level, text, src });
+  // Бібліотека перевірених порад цього етапу
+  for (const a of ACTIONS) if (a.s === i && applies(a, sc, flags)) act(a.pri ?? 30, a.t, a.src, a.id);
   const prev = i > 0 ? STAGES[i - 1] : 0;
   const crossed = (/** @type {number} */ h) => h > prev && h <= t;
+  /** Подія потрапляє в цей етап; на першому — і те, що вже настало. */
+  const within = (/** @type {number} */ h) => (i === 0 ? h <= t : crossed(h));
 
   /* — Електрика — */
   if (!sc.power) {
-    if (i === 0) {
-      act(90, 'Увімкніть ліхтар чи LED-лампу. Свічки — лише крайній засіб і ніколи без нагляду.', ['cdcStorm', 'nfpaCandle']);
-      act(70, 'Вимкніть із розеток техніку: коли світло повернеться, можливі стрибки напруги.', ['readyOutage']);
-      if (s.fridge || s.icebox !== 'none') act(86, 'Не відчиняйте холодильник і морозильник без потреби.', ['readyOutage', 'cdcFood']);
-      risk(78, 'danger', 'Генератор — лише надворі, щонайменше за 6 м від вікон і дверей; ніколи в квартирі, на балконі чи в під’їзді.', ['readyOutage', 'mohGen']);
-    }
-    if (i === 1) {
-      act(76, 'Телефони — в режим енергозбереження; один лишіть на зв’язку.', ['cdcOutage']);
-      if (s.fridge && s.cooler) act(82, 'Якщо світла не буде понад 4 години — перекладіть швидкопсувне в термосумку з льодом.', ['cdcFood']);
-    }
-    if (i === 3) act(55, 'Заряджайтеся в пункті незламності, коли вихід безпечний.', ['punkty']);
+    if (i === 0) risk(78, 'danger', 'Генератор — лише надворі, щонайменше за 6 м від вікон і дверей; ніколи в квартирі, на балконі чи в під’їзді.', ['readyOutage', 'mohGen']);
     // Продукти: холодильник ≈4 год, морозильник повний ≈48 год, наполовину ≈24 год
-    if (s.fridge && crossed(4)) {
-      if (s.cooler) act(84, 'Швидкопсувне тримайте в термосумці з льодом; перевіряйте термометром: не тепліше 4 °C.', ['readyOutage', 'cdcFood']);
-      else risk(92, 'danger', 'Понад 4 години без холоду: м’ясо, рибу, яйця, молоко й залишки страв із холодильника викиньте. Не куштуйте, щоб перевірити.', ['cdcFood', 'readyOutage']);
-    }
+    if (s.fridge && crossed(4) && !s.cooler) risk(92, 'danger', 'Понад 4 години без холоду: м’ясо, рибу, яйця, молоко й залишки страв із холодильника викиньте. Не куштуйте, щоб перевірити.', ['cdcFood', 'readyOutage']);
     if (s.icebox === 'half' && t === 24) risk(88, 'caution', 'Наполовину заповнений морозильник тримає холод ≈24 години. Продукти з кристалами льоду чи не тепліші за 4 °C можна готувати або заморозити знову.', ['readyOutage', 'cdcFood']);
     if (s.icebox === 'full' && t === 48) risk(88, 'caution', 'Повний морозильник тримає холод ≈48 годин. Перевірте продукти: з кристалами льоду чи не тепліші за 4 °C — можна, решту — викиньте.', ['readyOutage', 'cdcFood']);
     if (s.meds && t === 24) risk(93, 'danger', 'Ліки, що потребують холоду: понад добу без світла — замініть їх, якщо в інструкції не сказано інше; порадьтеся з фармацевтом.', ['readyOutage']);
@@ -279,8 +317,9 @@ function stageAt(i, t, m) {
     for (const x of sources) {
       const c = x.calc;
       if (!c.ok) { if (i === 1) risk(60, 'info', `«${x.src.name}»: не можу порахувати, на скільки вистачить — вкажіть ${c.need.join(', ')}.`, []); continue; }
-      if (i === 1 && c.runH != null) act(74, `«${x.src.name}»: ≈${fmt(c.usableWh)} Вт·год — вистачить на ${fmtHours(c.runH)} для вибраних приладів.`, []);
-      if (i === 1 && c.runH == null && !c.need.length) act(50, `«${x.src.name}»: ≈${fmt(c.usableWh)} Вт·год. Додайте прилади з потужністю й годинами — порахую час.`, []);
+      if (i === 1 && c.runH != null) act(74, `«${x.src.name}»: ≈${fmt(c.usableWh)} Вт·год — вистачить на ${fmtHours(c.runH)} для вибраних приладів.`, [], `src-run-${x.i}`);
+      if (i === 1 && c.runH == null && !c.need.length) act(50, `«${x.src.name}»: ≈${fmt(c.usableWh)} Вт·год. Додайте прилади з потужністю й годинами — порахую час.`, [], `src-load-${x.i}`);
+      if (i === 1 && H.d > 3 && c.runH != null && c.runH < H.d * 24) act(72, `Без підзарядки «${x.src.name}» не вистачить на ${H.long}: підзаряджайте в пункті незламності чи від авто — лише надворі.`, ['punkty', 'cdcCO'], `src-long-${x.i}`);
       if (c.runH != null && c.runH <= t && c.runH > prev) {
         const crit = s.devices.some((d) => d.src === x.i && d.crit);
         risk(crit ? 96 : 80, crit ? 'danger' : 'caution', `«${x.src.name}» розрядиться приблизно через ${fmtHours(c.runH)}${crit ? ' — разом із критичним пристроєм' : ''}. Залиште заряд на найважливіше.`, []);
@@ -292,32 +331,22 @@ function stageAt(i, t, m) {
 
   /* — Вода — */
   if (!sc.water && water.ok) {
-    if (i === 0) {
-      act(88, water.drink != null ? `Розділіть воду: ${fmt(water.drink)} л питної — лише на пиття.` : 'Розділіть воду: питна — лише на пиття. Вкажіть запас — порахую, на скільки вистачить.', ['cdcWaterSupply']);
-      act(58, 'Воду невідомого походження не пийте без знезараження.', ['cdcWater']);
-    }
-    if (i === 1) act(80, `Потреба лише на пиття — ${fmt(water.drinkDay)} л на добу${water.drinkHours != null ? `; запасу вистачить на ${water.drinkHours === Infinity ? '∞' : daysText(water.drinkHours / 24, true)}` : ''}.`, ['sphere', 'readyWater']);
+    if (i === 0) act(88, water.drink != null ? `Розділіть воду: ${fmt(water.drink)} л питної — лише на пиття.` : 'Розділіть воду: питна — лише на пиття. Вкажіть запас — порахую, на скільки вистачить.', ['cdcWaterSupply'], 'w-sep');
+    if (i === 1) act(80, `Потреба лише на пиття — ${fmt(water.drinkDay)} л на добу${water.drinkHours != null ? `; запасу вистачить на ${water.drinkHours === Infinity ? '∞' : daysText(water.drinkHours / 24, true)}` : ''}.`, ['sphere', 'readyWater'], 'w-day');
     if (water.drinkHours != null && water.drinkHours <= t && water.drinkHours > prev) risk(98, 'danger', `Питна вода закінчиться приблизно через ${fmtHours(water.drinkHours)}. Шукайте бутильовану воду чи пункт видачі, коли вихід безпечний.`, ['readyWater']);
     if (water.drinkHours != null && water.drinkHours < t && i > 0 && !(water.drinkHours > prev)) risk(90, 'danger', `Питної води вже немає — дефіцит ${fmt(water.drinkDay * (t - water.drinkHours) / 24)} л на цей час.`, ['readyWater']);
     if (water.techHours != null && water.techHours <= t && water.techHours > prev) risk(76, 'caution', `Технічна вода закінчиться через ${fmtHours(water.techHours)}: питну на змив не витрачайте — туалет у подвійних пакетах.`, ['toiletKC']);
-    if (i === 3) act(62, 'Воду після миття рук і посуду збирайте для змиву.', ['readyWater']);
-    if (t === 24 && water.drink != null) act(78, `За добу на пиття піде ${fmt(water.drinkDay)} л; лишиться ≈${fmt(Math.max(0, water.drink - water.drinkDay))} л.`, ['sphere']);
-    if (t === 72 && water.deficit72 != null && water.deficit72 > 0) act(85, `Поповніть питну воду: на 72 години бракує ${fmt(water.deficit72)} л.`, ['readyWater']);
+    if (t === 24 && water.drink != null) act(78, `За добу на пиття піде ${fmt(water.drinkDay)} л; лишиться ≈${fmt(Math.max(0, water.drink - water.drinkDay))} л.`, ['sphere'], 'w-24');
+    if (i === 1 && H.d > 3) act(79, `На ${H.long} потрібно ${fmt(water.needH)} л питної води${water.deficitH == null ? '. Вкажіть запас — порахую, скільки бракує' : water.deficitH > 0 ? ` — бракує ${fmt(water.deficitH)} л: поповнюйте заздалегідь, не чекаючи останньої пляшки` : ' — запасу вистачає'}.`, ['readyWater', 'femaFood'], 'w-need');
+    if (i === last && water.deficitH != null && water.deficitH > 0) act(85, `Поповніть питну воду: на ${H.long} бракує ${fmt(water.deficitH)} л.`, ['readyWater'], H.d === 3 ? 'w-def72' : `w-def${H.d}`);
+    if (H.d > 3 && i === last && water.techDeficitH != null && water.techDeficitH > 0) act(60, `Технічної води на ${H.long} бракує ${fmt(water.techDeficitH)} л: туалет — у пакетах, вода після миття — для змиву.`, ['toiletKC', 'readyWater'], `w-tech${H.d}`);
   }
-  if (sc.water && i === 0 && water.ok && water.drink != null) act(30, `Вода з крана є. Якщо зникне, ${fmt(water.drink)} л питного запасу вистачить на ${water.drinkHours === Infinity ? '∞' : daysText((water.drinkHours || 0) / 24, true)}.`, ['readyWater']);
+  if (sc.water && i === 0 && water.ok && water.drink != null) act(30, `Вода з крана є. Якщо зникне, ${fmt(water.drink)} л питного запасу вистачить на ${water.drinkHours === Infinity ? '∞' : daysText((water.drinkHours || 0) / 24, true)}.`, ['readyWater'], 'w-tap');
 
   /* — Тепло — */
   if (!sc.heat) {
-    if (i === 0) {
-      act(87, 'Зберіться в одній кімнаті й зачиніть двері в інші.', ['cdcStorm', 'readyWinter']);
-      act(80, 'Вдягніться шарами: шапка, теплі шкарпетки, светр.', ['cdcStorm']);
-      risk(95, 'danger', 'Не обігрівайтеся газовою плитою, мангалом, генератором чи саморобним обігрівачем — чадний газ і пожежа.', ['cdcCO', 'readyOutage']);
-    }
-    if (i === 1) act(68, 'Покладіть рушник під двері; вентиляцію не закривайте.', ['readyWinter']);
-    if (i === 2) act(72, 'Підготуйте тепле ліжко: навіс з ковдр зі щілиною для повітря, спальник, грілка з гарячою (не окропом) водою.', ['cdcStorm', 'hotBottle']);
+    if (i === 0) risk(95, 'danger', 'Не обігрівайтеся газовою плитою, мангалом, генератором чи саморобним обігрівачем — чадний газ і пожежа.', ['cdcCO', 'readyOutage']);
     if (i === 3 && s.infant) risk(94, 'danger', 'Немовля не повинне спати в холодній кімнаті; у ліжечку — без подушок і ковдр, у теплому комбінезоні.', ['cdcStorm']);
-    if (i === 3) act(50, 'Перевірте літніх сусідів і родичів.', ['cdcStorm']);
-    if (sc.power && i === 1) act(74, 'Світло є: сертифікований електрообігрівач — напряму в розетку, щонайменше за 1 м від штор, меблів і постелі; без нагляду не залишайте.', ['cdcStorm']);
     // Станція не замінює опалення: показуємо розрахунком, не обіцянкою
     const st = sources.find((/** @type {any} */ x) => x.src.kind === 'station' && x.calc.ok);
     if (!sc.power && i === 1 && st) risk(52, 'info', `Станція не замінить опалення: обігрівач на 1 000 Вт спорожнив би її ≈${fmt(st.calc.usableWh)} Вт·год за ${fmtHours(st.calc.usableWh / 1000)}. Тепло — утепленням, одягом, електроковдрою, якщо вона є.`, ['cdcStorm']);
@@ -325,18 +354,30 @@ function stageAt(i, t, m) {
       if (roomC <= 12 && (i === 1 || t === 24)) risk(95, 'danger', `У кімнаті ${roomC > 0 ? '+' : ''}${fmt(roomC)} °C — це небезпечно холодно. Плануйте перехід у тепле місце чи пункт незламності, щойно це безпечно.`, ['phe', 'punkty']);
       else if (roomC < 16 && vulnerable && (i === 1 || t === 24)) risk(84, 'caution', `${fmt(roomC)} °C — замало для дітей, літніх і хворих: тримайте їх у найтеплішій кімнаті й стежте за самопочуттям.`, ['phe', 'cdcWinter']);
       else if (roomC < 18 && i === 4) risk(60, 'info', `${fmt(roomC)} °C: стежте за ознаками переохолодження — тремтіння, сонливість, сплутаність.`, ['cdcWinter']);
-    } else if (i === 1) {
-      act(48, 'Поставте термометр у кімнаті: від температури залежить, чи пора переходити в тепле місце.', ['phe']);
+      // Довгий холод: нагадуємо на 5-ту й 10-ту добу
+      if (t === 120 || t === 240) {
+        if (roomC <= 12) risk(97, 'danger', `${daysText(t / 24)} у ${roomC > 0 ? '+' : ''}${fmt(roomC)} °C — так залишатися не можна: переходьте до родичів, у пункт незламності чи інше тепле місце, щойно це безпечно.`, ['phe', 'punkty']);
+        else if (roomC < 16 && vulnerable) risk(88, 'caution', `Довгий холод (${fmt(roomC)} °C) найнебезпечніший для дітей, літніх і хворих: якщо тепліше не стає — переїжджайте в тепле місце.`, ['phe', 'punkty']);
+      }
     }
-    if (t === 48) act(66, 'Якщо в житлі +12 °C і нижче й тепліше не стає — переходьте в тепле місце, коли це безпечно.', ['phe', 'punkty']);
   }
 
-  /* — Підсумок 72 год — */
-  if (t === 72) act(60, 'Ситуація триває — поповніть запаси й заряд, коли вихід безпечний; пункти незламності — для тепла, води й заряджання.', ['punkty']);
+  /* — Їжа й щоденні ліки на весь план — */
+  if (foodDays != null) {
+    if (within(foodDays * 24)) risk(foodDays === 0 ? 89 : 86, 'caution', foodDays === 0 ? 'Запасу їжі без холоду й готування немає: поповніть його, щойно вихід безпечний.' : `Запас їжі закінчиться приблизно через ${fmtHours(foodDays * 24)}. Поповніть його, коли вихід безпечний; дітям і вагітним їжу не урізайте.`, ['femaFood']);
+    if (i === last && foodDays < H.d) act(83, `Їжі бракує ще на ${daysText(H.d - foodDays)} до кінця плану на ${H.long}: поповнюйте поступово, щойно є змога.`, ['femaFood', 'waEmd'], 'f-def');
+  }
+  if (medsDays != null) {
+    if (within(medsDays * 24)) risk(96, 'danger', medsDays === 0 ? 'Щоденних ліків немає: зверніться до лікаря чи аптеки сьогодні.' : `Щоденні ліки закінчаться приблизно через ${fmtHours(medsDays * 24)}. Подбайте про рецепт і аптеку заздалегідь — не чекайте останньої таблетки.`, ['cdcRx']);
+    if (i === 1 && medsDays > 0 && medsDays < H.d) act(81, `Ліків вистачить на ${daysText(medsDays, true)} — менше за план на ${H.long}: поговоріть з лікарем чи фармацевтом про запас.`, ['cdcRx'], 'm-short');
+  }
 
   acts.sort((a, b) => b.pri - a.pri);
   risks.sort((a, b) => b.pri - a.pri);
-  return { t, label: STAGE_LABEL[i], actions: dedupe(acts).slice(0, 3), risks: dedupe(risks).slice(0, 3) };
+  const all = dedupe(acts);
+  const allRisks = dedupe(risks);
+  // Угорі — щонайбільше три найважливіші дії й ризики; повний перелік — у «Усі дії етапу»
+  return { t, label: STAGE_LABEL[i], actions: all.slice(0, 3), risks: allRisks.slice(0, 3), all, allRisks };
 }
 
 /** @param {Item[]} a */
@@ -362,11 +403,41 @@ export function remainingAt(m, t) {
   return out;
 }
 
-/** Етап, у якому людина зараз: останній, чий час уже настав. @param {number} hours */
-export function stageForElapsed(hours) {
+/** Етап, у якому людина зараз: останній, чий час уже настав, у межах плану. @param {number} hours @param {number} [days] */
+export function stageForElapsed(hours, days = 3) {
+  const list = stagesFor(days);
   let idx = 0;
-  for (let i = 0; i < STAGES.length; i++) if (hours >= STAGES[i]) idx = i;
+  for (let i = 0; i < list.length; i++) if (hours >= list[i]) idx = i;
   return idx;
+}
+
+/**
+ * Чи вистачить запасів на весь план: вода, їжа, ліки, енергія. Лише з введеного.
+ * @param {ReturnType<typeof simulate>} m
+ * @returns {{level:'ok'|'caution'|'danger'|'info', text:string}[]}
+ */
+export function horizonSummary(m) {
+  const H = m.horizon;
+  /** @type {{level:'ok'|'caution'|'danger'|'info', text:string}[]} */ const out = [];
+  const w = /** @type {any} */ (m.water);
+  if (w.ok && !m.scen.water) {
+    if (w.drink == null) out.push({ level: 'info', text: `Питна вода: на ${H.long} потрібно ${fmt(w.needH)} л — вкажіть запас, і я порахую, чи вистачить.` });
+    else if (w.deficitH > 0) out.push({ level: 'danger', text: `Питна вода: потрібно ${fmt(w.needH)} л, є ${fmt(w.drink)} л — бракує ${fmt(w.deficitH)} л; запасу вистачить на ${daysText((w.drinkHours || 0) / 24, true)}.` });
+    else out.push({ level: 'ok', text: `Питна вода: ${fmt(w.drink)} л вистачить на весь план (потрібно ${fmt(w.needH)} л).` });
+    if (w.tech != null && w.techDay > 0) out.push(w.techDeficitH > 0 ? { level: 'caution', text: `Технічна вода: потрібно ${fmt(w.techNeedH)} л, є ${fmt(w.tech)} л — бракує ${fmt(w.techDeficitH)} л.` } : { level: 'ok', text: `Технічна вода: ${fmt(w.tech)} л вистачить (потрібно ${fmt(w.techNeedH)} л).` });
+  }
+  if (m.foodDays == null) out.push({ level: 'info', text: 'Їжа: вкажіть, на скільки діб вистачить їжі без холоду й готування.' });
+  else if (m.foodDays < H.d) out.push({ level: 'caution', text: `Їжа: вистачить на ${daysText(m.foodDays, true)} — бракує ще на ${daysText(H.d - m.foodDays)}.` });
+  else out.push({ level: 'ok', text: `Їжа: вистачить на ${daysText(m.foodDays, true)} — на весь план.` });
+  if (m.medsDays != null) out.push(m.medsDays < H.d ? { level: 'danger', text: `Щоденні ліки: вистачить на ${daysText(m.medsDays, true)} — менше за план на ${H.long}.` } : { level: 'ok', text: `Щоденні ліки: вистачить на весь план.` });
+  if (!m.scen.power) {
+    for (const x of m.sources) {
+      const c = /** @type {any} */ (x.calc);
+      if (!c.ok || c.runH == null) continue;
+      out.push(c.runH < H.d * 24 ? { level: 'caution', text: `«${x.src.name}»: без підзарядки вистачить на ${fmtHours(c.runH)} з ${H.long} плану.` } : { level: 'ok', text: `«${x.src.name}»: вистачить на весь план без підзарядки.` });
+    }
+  }
+  return out;
 }
 
 /* ───────────── Експорт / імпорт ───────────── */

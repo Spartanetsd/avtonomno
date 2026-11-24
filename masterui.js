@@ -7,11 +7,52 @@ import { esc, icon, note, pageHead, sourcesList, empty } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
+/** Скільки уроків показувати в режимі «Усі», доки людина не відкриє напрям. */
+const PREVIEW = 4;
+/** Пошуковий запит зберігається між переходами в межах сесії. */
+const ms = { q: '' };
+
+/** @param {import('./master.js').Lesson} l */
+function lessonRow(l) {
+  return `<a class="row two" href="#/master/${l.id}">${icon(DIRS[l.dir].icon)}<span><b>${esc(l.title)}</b><span class="muted">${esc(l.goal)}</span></span>${icon('i-chev', 'end')}</a>`;
+}
+
+/** Текст уроку для пошуку — назва, мета, сучасний спосіб, кроки, матеріали. @param {import('./master.js').Lesson} l */
+function hay(l) {
+  return [l.title, l.goal, l.modern, l.history, ...l.steps, ...l.materials, ...l.scheme.map((n) => `${n.t} ${n.d}`)].join(' ').toLowerCase();
+}
+
+/** @param {string} q @param {(keyof typeof DIRS)|null} only */
+function searchLessons(q, only) {
+  const words = q.toLowerCase().replace(/[’'`]/g, '’').split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  return LESSONS.filter((l) => (!only || l.dir === only) && words.every((w) => hay(l).includes(w)));
+}
+
+/** @param {(keyof typeof DIRS)|null} only */
+function listBody(only) {
+  const q = ms.q.trim();
+  if (q) {
+    const res = searchLessons(q, only);
+    if (!res.length) return empty('empty-search', 'Нічого не знайдено', 'Спробуйте інше слово або оберіть «Усі».');
+    return `<p class="count">Знайдено уроків: ${res.length}</p><div class="rows">${res.map(lessonRow).join('')}</div>`;
+  }
+  const dirs = only ? [only] : DIR_ORDER;
+  return dirs.map((d) => {
+    const all = lessonsOf(d);
+    const shown = only ? all : all.slice(0, PREVIEW);
+    const more = all.length - shown.length;
+    return `<section class="ms-dir" aria-labelledby="ms-${d}">
+      <h2 class="h2" id="ms-${d}">${esc(DIRS[d].label)} <span class="muted">· ${esc(DIRS[d].sub)} · ${all.length}</span></h2>
+      <div class="rows">${shown.map(lessonRow).join('')}${more > 0 ? `<a class="row ms-more" href="#/master?d=${d}">${icon('i-layers')}<span>Усі ${all.length} уроків напряму «${esc(DIRS[d].label)}»</span>${icon('i-chev', 'end')}</a>` : ''}</div>
+    </section>`;
+  }).join('');
+}
+
 /** @param {URLSearchParams} q @returns {View} */
 function listView(q) {
   const dir = q.get('d');
   const only = dir && dir in DIRS ? /** @type {keyof typeof DIRS} */ (dir) : null;
-  const dirs = only ? [only] : DIR_ORDER;
   return {
     title: 'Майстер предків',
     tab: 'home',
@@ -20,11 +61,14 @@ function listView(q) {
       <a class="chip" href="#/master" aria-current="${only ? 'false' : 'page'}">${only ? '' : icon('i-check')}<span>Усі</span></a>
       ${DIR_ORDER.map((d) => `<a class="chip" href="#/master?d=${d}" aria-current="${only === d ? 'page' : 'false'}">${only === d ? icon('i-check') : ''}<span>${esc(DIRS[d].label)}</span></a>`).join('')}
     </div>
+    <div class="search">${icon('i-search')}<input id="ms-q" type="search" inputmode="search" autocomplete="off" placeholder="Наприклад: кліщ, бойлер, часник" aria-label="Пошук уроків${only ? ` у напрямі «${esc(DIRS[only].label)}»` : ''}" value="${esc(ms.q)}"></div>
     <p class="hint">${icon('i-info')} Історичне не означає безпечне: у кожному уроці — що змінилося, чому, і як зробити сьогодні без ризику. Кожна порада — з джерелом.</p>
-    ${dirs.map((d) => `<section class="ms-dir" aria-labelledby="ms-${d}">
-      <h2 class="h2" id="ms-${d}">${esc(DIRS[d].label)} <span class="muted">· ${esc(DIRS[d].sub)}</span></h2>
-      <div class="rows">${lessonsOf(d).map((l) => `<a class="row two" href="#/master/${l.id}">${icon(DIRS[d].icon)}<span><b>${esc(l.title)}</b><span class="muted">${esc(l.goal)}</span></span>${icon('i-chev', 'end')}</a>`).join('')}</div>
-    </section>`).join('')}`,
+    <div id="ms-out" aria-live="polite">${listBody(only)}</div>`,
+    after() {
+      const inp = /** @type {HTMLInputElement|null} */ (document.getElementById('ms-q'));
+      const out = document.getElementById('ms-out');
+      inp?.addEventListener('input', () => { ms.q = inp.value; if (out) out.innerHTML = listBody(only); });
+    },
   };
 }
 
@@ -72,3 +116,4 @@ function lessonView(id) {
 
 
 export const masterScreens = { list: listView, lesson: lessonView };
+export { searchLessons };

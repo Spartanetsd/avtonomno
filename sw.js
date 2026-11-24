@@ -5,7 +5,7 @@
 // з кожною версією коду. Нова картинка дозберігається сама (кеш доповнюється лише відсутніми),
 // а замінили наявну — збільште PICS_CACHE.
 
-const VERSION = 'avtonomno-v2.4.0';
+const VERSION = 'avtonomno-v2.5.0';
 const PICS_CACHE = 'avtonomno-pics-v1';
 const PREFIX = 'avtonomno-';
 
@@ -35,8 +35,16 @@ const CORE = [
   './haveui.js',
   './sim.js',
   './simui.js',
+  './simacts.js',
   './master.js',
   './masterui.js',
+  './lessons-build.js',
+  './lessons-heat.js',
+  './lessons-light.js',
+  './lessons-food.js',
+  './lessons-grow.js',
+  './lessons-nature.js',
+  './lessons-water.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',

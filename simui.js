@@ -1,17 +1,18 @@
 // @ts-check
-// Екран «72 години»: сценарій, часова шкала, до трьох дій і ризиків на етап,
-// точні розрахунки води й енергії, параметри, збереження, експорт та імпорт.
+// Екран «План відключення»: що зникло, тривалість (3 доби, тиждень, 2 тижні), часова шкала,
+// до трьох дій і ризиків на етап, чи вистачить запасів на весь план, точні розрахунки води,
+// їжі, ліків і енергії, параметри, збереження, експорт та імпорт.
 
 import * as store from './store.js';
 import { SOURCES } from './data.js';
 import { DEVICE_PRESETS, WATER_PRESETS, fmt, fmtHours } from './calc.js';
-import { STAGES, STAGE_LABEL, SCENARIOS, SOURCE_KINDS, UNIT_LABEL, simulate, remainingAt, stageForElapsed, newSource, exportSim, importSim, simDefaults, cleanSim } from './sim.js';
+import { STAGE_LABEL, SCENARIOS, HORIZONS, horizon, stagesFor, SOURCE_KINDS, UNIT_LABEL, simulate, remainingAt, stageForElapsed, horizonSummary, newSource, exportSim, importSim, simDefaults, cleanSim } from './sim.js';
 import { app, on, esc, icon, pageHead, seg, bindNumField, keepInPlace } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./sim.js').SimState} SimState */
 
-const LEVEL_ICON = { danger: 'i-alert', caution: 'i-warn', info: 'i-info' };
+const LEVEL_ICON = { danger: 'i-alert', caution: 'i-warn', info: 'i-info', ok: 'i-check' };
 
 /** @returns {SimState} */
 const S = () => store.get().sim;
@@ -19,8 +20,8 @@ const S = () => store.get().sim;
 /** Етап, який показуємо: під час відліку — поточний за часом, інакше — вибраний. */
 function shownStage() {
   const s = S();
-  if (s.startAt != null) return stageForElapsed((Date.now() - s.startAt) / 3600000);
-  return s.stage;
+  if (s.startAt != null) return stageForElapsed((Date.now() - s.startAt) / 3600000, s.days);
+  return Math.min(s.stage, stagesFor(s.days).length - 1);
 }
 
 /** @returns {View} */
@@ -28,16 +29,23 @@ function simView() {
   const s = S();
   const m = simulate(s);
   const st = shownStage();
+  const n = stagesFor(s.days).length;
+  /** @param {number} i */
+  const dot = (i) => {
+    const [a, u] = STAGE_LABEL[i].split(' ');
+    return `<button type="button" class="sim-dot${i === st ? ' on' : ''}${i < st ? ' past' : ''}" data-act="sim-stage" data-v="${i}" aria-pressed="${i === st}" aria-label="Етап ${esc(STAGE_LABEL[i])}"><b>${esc(a)}</b><span>${esc(u)}</span></button>`;
+  };
   return {
-    title: '72 години',
+    title: 'План відключення',
     tab: 'home',
-    html: `${pageHead('72 години', '#/', 'Що робити в перші три доби — за вашими даними')}
-    <div class="sim-scen">${seg('sim-scen', Object.entries(SCENARIOS).map(([v, x]) => ({ v, label: x.label })), s.scen, 'Сценарій')}</div>
+    html: `${pageHead('План відключення', '#/', 'Що робити й чи вистачить запасів — на 3 доби, тиждень чи 2 тижні, за вашими даними')}
+    <div class="sim-scen">${seg('sim-scen', Object.entries(SCENARIOS).map(([v, x]) => ({ v, label: x.label })), s.scen, 'Що зникло')}</div>
+    <div class="sim-days">${seg('sim-days', HORIZONS.map((h) => ({ v: String(h.d), label: h.label })), String(s.days), 'Тривалість плану')}</div>
     <div id="sim-clock">${clockHtml()}</div>
-    <nav class="sim-line" aria-label="Етапи">${STAGES.map((_t, i) => {
-      const [n, u] = STAGE_LABEL[i].split(' ');
-      return `<button type="button" class="sim-dot${i === st ? ' on' : ''}${i < st ? ' past' : ''}" data-act="sim-stage" data-v="${i}" aria-pressed="${i === st}" aria-label="Етап ${esc(STAGE_LABEL[i])}"><b>${esc(n)}</b><span>${esc(u)}</span></button>`;
-    }).join('')}</nav>
+    <nav class="sim-line" aria-label="Етапи">
+      <div class="sim-row">${Array.from({ length: Math.min(7, n) }, (_x, i) => dot(i)).join('')}</div>
+      ${n > 7 ? `<div class="sim-row d${n - 7}">${Array.from({ length: n - 7 }, (_x, k) => dot(7 + k)).join('')}</div>` : ''}
+    </nav>
     <div id="sim-out" aria-live="polite">${outHtml(m, st)}</div>
     <h2 class="h2">Ваші дані</h2>
     ${formHtml(s)}
@@ -60,7 +68,11 @@ function clockHtml() {
   const s = S();
   if (s.startAt == null) return `<div class="sim-clock"><span class="muted">Відключення почалося зараз?</span><button class="btn small primary" type="button" data-act="sim-start">${icon('i-clock')}<span>Почати відлік</span></button></div>`;
   const h = (Date.now() - s.startAt) / 3600000;
-  return `<div class="sim-clock on"><span>${icon('i-hourglass')}Минуло <b>${esc(h < 1 / 60 ? 'менше хвилини' : fmtHours(h))}</b> · етап «${esc(STAGE_LABEL[stageForElapsed(h)])}»</span><button class="btn small ghost" type="button" data-act="sim-stop">Зупинити</button></div>`;
+  const H = horizon(s.days);
+  const next = HORIZONS.find((x) => x.d > H.d && h < x.d * 24) || HORIZONS[HORIZONS.length - 1];
+  const over = h > H.d * 24 && next.d > H.d;
+  return `<div class="sim-clock on"><span>${icon('i-hourglass')}Минуло <b>${esc(h < 1 / 60 ? 'менше хвилини' : fmtHours(h))}</b> · етап «${esc(STAGE_LABEL[stageForElapsed(h, s.days)])}»</span><button class="btn small ghost" type="button" data-act="sim-stop">Зупинити</button></div>
+  ${over ? `<div class="sim-clock over"><span>${icon('i-info')}Відключення триває довше за план на ${esc(H.long)}.</span><button class="btn small primary" type="button" data-act="sim-days" data-v="${next.d}">Продовжити до ${esc(next.long)}</button></div>` : ''}`;
 }
 
 /** @param {string[]} keys */
@@ -77,6 +89,7 @@ function outHtml(m, i) {
   if (rem.drink != null) remItems.push(`<li>${icon('i-drop')}<span>Питна вода: <b>${fmt(rem.drink, 1)} л</b></span></li>`);
   if (rem.tech != null) remItems.push(`<li>${icon('i-drop')}<span>Технічна: <b>${fmt(rem.tech, 1)} л</b></span></li>`);
   for (const x of rem.sources) remItems.push(`<li>${icon('i-battery')}<span>${esc(x.name)}: <b>${x.wh == null ? 'не пораховано' : `${fmt(x.wh)} Вт·год${x.pct != null ? ` · ${fmt(x.pct, 0)} %` : ''}`}</b></span></li>`);
+  const sum = horizonSummary(m);
   return `${m.errors.length ? `<div class="note caution"><div class="note-h">${icon('i-warn')}<span class="note-l">Перевірте дані</span></div><ul>${m.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul></div>` : ''}
   <section class="card sim-stage" aria-labelledby="sim-st-h">
     <h2 id="sim-st-h">${esc(stage.label)} · ${esc(m.scen.label.toLowerCase())}</h2>
@@ -85,9 +98,45 @@ function outHtml(m, i) {
     <h3>Ризики</h3>
     ${stage.risks.length ? `<ul class="sim-risks">${stage.risks.map((r) => `<li class="${r.level}">${icon(LEVEL_ICON[/** @type {'info'} */ (r.level || 'info')])}<span>${esc(r.text)}</span></li>`).join('')}</ul>` : '<p class="muted">Особливих ризиків на цьому етапі не видно з ваших даних.</p>'}
     ${allSrc.length ? `<p class="hint">Джерела: ${esc(srcOrgs(allSrc))}. Посилання — у «Розрахунках».</p>` : ''}
+    ${checklistHtml(m, i)}
   </section>
+  ${sum.length ? `<section class="card sim-sum" aria-labelledby="sim-sum-h"><h3 id="sim-sum-h">Чи вистачить на ${esc(m.horizon.long)}</h3><ul class="sim-risks">${sum.map((x) => `<li class="${x.level}">${icon(LEVEL_ICON[x.level])}<span>${esc(x.text)}</span></li>`).join('')}</ul></section>` : ''}
   ${remItems.length ? `<section class="card sim-rem" aria-labelledby="sim-rem-h"><h3 id="sim-rem-h">Що лишиться на ${esc(stage.label)}</h3><ul class="sim-reml">${remItems.join('')}</ul></section>` : ''}
   ${calcHtml(m, allSrc)}`;
+}
+
+/** Чи розгорнуто «Усі дії етапу» — пам’ятаємо між перерахунками. */
+let allOpen = false;
+
+/** Один пункт переліку з позначкою «зроблено». @param {{id:string, text:string, src:string[]}} a @param {Set<string>} done */
+function checkItem(a, done) {
+  const org = srcOrgs(a.src);
+  return `<li><label class="sim-ck"><input type="checkbox" data-simdone="${esc(a.id)}"${done.has(a.id) ? ' checked' : ''}><span>${esc(a.text)}${org ? ` <span class="muted">(${esc(org)})</span>` : ''}</span></label></li>`;
+}
+
+/**
+ * Повний перелік: дії цього етапу, незроблене з попередніх і всі ризики.
+ * @param {ReturnType<typeof simulate>} m @param {number} i
+ */
+function checklistHtml(m, i) {
+  const done = new Set(S().done);
+  const stage = m.stages[i];
+  const own = stage.all;
+  const seen = new Set(own.map((a) => a.id));
+  const prev = [];
+  for (const st of m.stages.slice(0, i)) for (const a of st.all) if (!done.has(a.id) && !seen.has(a.id)) { seen.add(a.id); prev.push(a); }
+  const k = own.filter((a) => done.has(a.id)).length;
+  return `<details class="sim-all" id="sim-all"${allOpen ? ' open' : ''}>
+    <summary>${icon('i-list')}<span id="sim-all-s">${allText(own.length, k, prev.length)}</span></summary>
+    <ul class="sim-check">${own.map((a) => checkItem(a, done)).join('')}</ul>
+    ${prev.length ? `<h4 class="sim-h4">Ще не зроблено з попередніх етапів · ${prev.length}</h4><ul class="sim-check">${prev.map((a) => checkItem(a, done)).join('')}</ul>` : ''}
+    ${stage.allRisks.length > 3 ? `<h4 class="sim-h4">Усі ризики етапу · ${stage.allRisks.length}</h4><ul class="sim-risks">${stage.allRisks.map((r) => `<li class="${r.level}">${icon(LEVEL_ICON[/** @type {'info'} */ (r.level || 'info')])}<span>${esc(r.text)}</span></li>`).join('')}</ul>` : ''}
+  </details>`;
+}
+
+/** @param {number} n @param {number} k @param {number} prev */
+function allText(n, k, prev) {
+  return `Усі дії етапу: ${n} · зроблено ${k}${prev ? ` · з попередніх ще ${prev}` : ''}`;
 }
 
 /** @param {ReturnType<typeof simulate>} m @param {string[]} srcKeys */
@@ -139,7 +188,9 @@ function formHtml(s) {
       <div class="field"><span class="lbl">Норма на людину</span>${seg('sim-norm', WATER_PRESETS.map((p) => ({ v: p.id, label: p.label })), s.norm, 'Норма води')}<p class="hint">${esc((WATER_PRESETS.find((p) => p.id === s.norm) || WATER_PRESETS[0]).note)}</p></div>
       ${check('hot', 'Спека: пити потрібно вдвічі більше', s.hot)}
     </details>
-    <details class="card fold sim-f"><summary>${icon('i-snow')}<span>Їжа й ліки</span></summary>
+    <details class="card fold sim-f"${s.days > 3 || s.foodDays || s.medsDays ? ' open' : ''}><summary>${icon('i-snow')}<span>Їжа й ліки</span></summary>
+      <div class="grid2">${field('foodDays', 'Їжі без холоду — на', s.foodDays, 'діб', 'data-min="0" data-max="365"')}${field('medsDays', 'Щоденних ліків — на', s.medsDays, 'діб', 'data-min="0" data-max="365"')}</div>
+      <p class="hint">Оцініть разом із родиною: на скільки діб вистачить їжі, що не потребує холодильника й готування, і щоденних ліків. Немає щоденних ліків — залиште порожнім.</p>
       ${check('fridge', 'У холодильнику є швидкопсувне', s.fridge)}
       <div class="field"><span class="lbl">Морозильник</span>${seg('sim-ice', [{ v: 'full', label: 'Повний' }, { v: 'half', label: 'Наполовину' }, { v: 'none', label: 'Порожній' }], s.icebox, 'Морозильник')}</div>
       ${check('cooler', 'Є термосумка з льодом чи холодними акумуляторами', s.cooler)}
@@ -245,6 +296,24 @@ function bindForm() {
       if (path.endsWith('.unit')) { app.render(); /** @type {HTMLElement|null} */ (document.getElementById(sel.id))?.focus(); } else keepInPlace(sel, () => refresh());
     });
   });
+  // Позначки «зроблено» в повному переліку — без перебудови сторінки, щоб не губився фокус
+  const out = document.getElementById('sim-out');
+  out?.addEventListener('change', (e) => {
+    const inp = /** @type {HTMLInputElement} */ (e.target);
+    const id = inp && inp.dataset ? inp.dataset.simdone : '';
+    if (!id) return;
+    change((s) => { s.done = inp.checked ? [...new Set([...s.done, id])] : s.done.filter((x) => x !== id); });
+    out.querySelectorAll(`input[data-simdone="${CSS.escape(id)}"]`).forEach((x) => { /** @type {HTMLInputElement} */ (x).checked = inp.checked; });
+    const m = simulate(S());
+    const i = shownStage();
+    const done = new Set(S().done);
+    const own = m.stages[i].all;
+    const prevIds = new Set();
+    for (const st of m.stages.slice(0, i)) for (const a of st.all) if (!done.has(a.id) && !own.some((o) => o.id === a.id)) prevIds.add(a.id);
+    const sEl = document.getElementById('sim-all-s');
+    if (sEl) sEl.textContent = allText(own.length, own.filter((a) => done.has(a.id)).length, prevIds.size);
+  });
+  out?.addEventListener('toggle', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'sim-all') allOpen = /** @type {HTMLDetailsElement} */ (e.target).open; }, true);
   const f = /** @type {HTMLInputElement|null} */ (document.getElementById('sim-file'));
   f?.addEventListener('change', () => {
     const file = f.files && f.files[0];
@@ -289,13 +358,13 @@ function readFile(file) {
 
 async function exportFile() {
   const payload = JSON.stringify(exportSim(S()), null, 2);
-  const name = `avtonomno-72-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `avtonomno-plan-${S().days}d-${new Date().toISOString().slice(0, 10)}.json`;
   const blob = new Blob([payload], { type: 'application/json' });
   try {
     const file = new File([blob], name, { type: 'application/json' });
     const nav = /** @type {any} */ (navigator);
     if (nav.canShare && nav.canShare({ files: [file] }) && /iPhone|iPad|Android/i.test(navigator.userAgent)) {
-      await nav.share({ files: [file], title: 'Автономно — 72 години' });
+      await nav.share({ files: [file], title: `Автономно — план відключення на ${horizon(S().days).long}` });
       return;
     }
   } catch (e) {
@@ -319,6 +388,13 @@ function refocus(act, v) {
 
 on({
   'sim-scen': (el) => { const v = el.dataset.v || 'all'; change((s) => { s.scen = /** @type {any} */ (v); }); app.render(); refocus('sim-scen', v); },
+  'sim-days': (el) => {
+    const v = Number(el.dataset.v) === 7 || Number(el.dataset.v) === 14 ? Number(el.dataset.v) : 3;
+    change((s) => { s.days = /** @type {3|7|14} */ (v); if (s.stage >= stagesFor(v).length) s.stage = stagesFor(v).length - 1; });
+    app.render();
+    refocus('sim-days', String(v));
+    app.toast(`План на ${horizon(v).long}`);
+  },
   'sim-stage': (el) => {
     const v = Number(el.dataset.v) || 0;
     if (S().startAt != null) app.toast('Іде відлік — етап обирається за часом. Зупиніть відлік, щоб гортати етапи.');
@@ -358,7 +434,7 @@ on({
   'sim-reset': () => {
     undo = JSON.parse(JSON.stringify(S()));
     const d = store.get().state;
-    store.update((x) => { x.sim = { ...simDefaults(), adults: String(d.adults ?? 1), kids: String(d.kids ?? 0), elderly: String(d.elderly ?? 0), drink: d.waterL != null ? String(d.waterL) : '' }; });
+    store.update((x) => { x.sim = { ...simDefaults(), days: store.daysFromDuration(x.profile.duration), adults: String(d.adults ?? 1), kids: String(d.kids ?? 0), elderly: String(d.elderly ?? 0), drink: d.waterL != null ? String(d.waterL) : '' }; });
     app.render();
     app.toast('Симуляцію скинуто', { action: 'sim-undo', label: 'Повернути' });
   },

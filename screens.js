@@ -14,7 +14,7 @@ import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '2.4.0';
+const VERSION = '2.5.0';
 
 /* ───────────── Допоміжні ───────────── */
 
@@ -267,7 +267,7 @@ on({
     store.update((d) => { d.profile.limits = d.profile.limits.includes(k) ? d.profile.limits.filter((x) => x !== k) : [...d.profile.limits, k]; });
     app.render();
   },
-  'su-dur': (el) => { store.update((d) => { d.profile.duration = /** @type {any} */ (el.dataset.v); }); app.render(); },
+  'su-dur': (el) => { store.update((d) => { d.profile.duration = /** @type {any} */ (el.dataset.v); d.sim.days = store.daysFromDuration(d.profile.duration); }); app.render(); },
   'su-budget': (el) => { store.update((d) => { d.profile.budget = Number(el.dataset.v); }); app.render(); },
   'su-finish': () => {
     store.update((d) => { d.profile.setupDone = true; });
@@ -314,7 +314,7 @@ function resourcesView() {
     <div class="rows">
       <a class="row two" href="#/state">${icon('i-thermo')}<span><b>Мій стан сьогодні</b><span class="muted">${esc(stateSummary(d))}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/setup/1">${icon('i-home')}<span><b>Моя ситуація</b><span class="muted">${esc(sit)}</span></span>${icon('i-chev', 'end')}</a>
-      <a class="row two" href="#/72">${icon('i-hourglass')}<span><b>72 години</b><span class="muted">План і розрахунок води й енергії на три доби</span></span>${icon('i-chev', 'end')}</a>
+      <a class="row two" href="#/72">${icon('i-hourglass')}<span><b>План відключення</b><span class="muted">Дії й розрахунок води, їжі, ліків і енергії на 3 доби, тиждень чи 2 тижні</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/have">${icon('i-kit')}<span><b>Що маю</b><span class="muted">${Object.keys(d.have.items).length ? `Позначено речей: ${Object.keys(d.have.items).length}` : 'Рішення з того, що є під рукою'}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/saved">${icon('i-star')}<span><b>Збережене</b><span class="muted">${nf ? `${nf} ${plural(nf, 'рішення', 'рішення', 'рішень')}` : 'Поки порожньо'}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row two" href="#/sheet">${icon('i-print')}<span><b>Пам’ятка для укриття</b><span class="muted">Роздрукувати для свого будинку</span></span>${icon('i-chev', 'end')}</a>

@@ -5,6 +5,14 @@
 // небезпечні частини старих способів названо прямо й замінено перевіреними.
 // Без інструкцій для небезпечної консервації, саморобного опалення й сумнівного знезараження води.
 
+import { LESSONS_BUILD } from './lessons-build.js';
+import { LESSONS_HEAT } from './lessons-heat.js';
+import { LESSONS_LIGHT } from './lessons-light.js';
+import { LESSONS_FOOD } from './lessons-food.js';
+import { LESSONS_GROW } from './lessons-grow.js';
+import { LESSONS_NATURE } from './lessons-nature.js';
+import { LESSONS_WATER } from './lessons-water.js';
+
 /** Сім напрямів. */
 export const DIRS = {
   build: { label: 'Будівництво й ремонт', sub: 'мінімум інструментів', icon: 'i-box' },
@@ -27,8 +35,8 @@ export const DIR_ORDER = /** @type {(keyof typeof DIRS)[]} */ (['build', 'heat',
  * }} Lesson
  */
 
-/** @type {Lesson[]} */
-export const LESSONS = [
+/** Перші 21 урок (2.4.0). @type {Lesson[]} */
+const BASE = [
   /* ───────── Будівництво й ремонт ───────── */
   {
     id: 'broken-window', dir: 'build', title: 'Тимчасово закрити розбите вікно',
@@ -457,6 +465,9 @@ export const LESSONS = [
     src: ['cdcRain'],
   },
 ];
+
+/** Усі уроки: базові + додаткові з окремих файлів напрямів (2.4.2). @type {Lesson[]} */
+export const LESSONS = [...BASE, ...LESSONS_BUILD, ...LESSONS_HEAT, ...LESSONS_LIGHT, ...LESSONS_FOOD, ...LESSONS_GROW, ...LESSONS_NATURE, ...LESSONS_WATER];
 
 export const LESSON_BY_ID = new Map(LESSONS.map((l) => [l.id, l]));
 

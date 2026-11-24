@@ -165,7 +165,7 @@ function viewHome() {
     <nav class="needs" aria-label="Що потрібно вирішити">${needs}</nav>
     <nav class="mods" aria-label="Інструменти автономності">
       <a class="mod" href="#/have">${icon('i-kit')}<span class="mod-t">Що маю</span><span class="mod-s">рішення з наявного</span></a>
-      <a class="mod" href="#/72">${icon('i-hourglass')}<span class="mod-t">72 години</span><span class="mod-s">план на три доби</span></a>
+      <a class="mod" href="#/72">${icon('i-hourglass')}<span class="mod-t">До 14 діб</span><span class="mod-s">план дій і запасів</span></a>
       <a class="mod" href="#/master">${icon('i-hammer')}<span class="mod-t">Майстер предків</span><span class="mod-s">уроки з джерелами</span></a>
     </nav>
     ${stateCard(d, c)}
