@@ -101,3 +101,54 @@ test('2.6.0: пошук порад і швидкий перехід з пошу�
     assert.ok(sectionsFor(q).some((s) => s.href === '#/tips/heat'), q);
   }
 });
+
+test('2.7.0: у кожної поради — пояснення «чому», 1–5 кроків і, де треба, застереження', () => {
+  const MIX = /[Ѐ-ӿ][A-Za-z]|[A-Za-z][Ѐ-ӿ]/;
+  let steps = 0;
+  for (const t of TIPS_HEAT) {
+    assert.ok(t.why && t.why.length >= 20 && t.why.length <= 260, `${t.id}: «чому» ${t.why?.length}`);
+    assert.match(t.why, /[.!]$/, `${t.id}: «чому» закінчується крапкою`);
+    assert.ok(Array.isArray(t.how) && t.how.length >= 1 && t.how.length <= 5, `${t.id}: кроків ${t.how?.length}`);
+    steps += t.how.length;
+    assert.ok(!t.warn || (t.warn.length >= 1 && t.warn.length <= 2), `${t.id}: застережень ${t.warn?.length}`);
+    for (const s of [t.why, ...t.how, ...(t.warn || [])]) {
+      assert.ok(s.length >= 6 && s.length <= 170, `${t.id}: довжина «${s}»`);
+      assert.match(s, /[.!]$/, `${t.id}: крапка в кінці — «${s}»`);
+      assert.ok(!/[Zz]/.test(s), `${t.id}: латинська «зет»`);
+      assert.ok(!MIX.test(s), `${t.id}: змішані літери — ${s}`);
+      assert.ok(!s.includes("'"), `${t.id}: апостроф має бути ’`);
+      assert.ok(!/\s{2,}|^\s|\s$/.test(s), `${t.id}: зайві пробіли`);
+      assert.ok(!/\d-\d/.test(s), `${t.id}: діапазон пишемо через «–»`);
+    }
+    assert.notEqual(t.why, t.d, `${t.id}: «чому» не повторює короткий опис`);
+  }
+  assert.ok(steps >= 200, `кроків замало: ${steps}`);
+  // Пояснення до «Безпечного тепла» — без вогню в житлі як поради
+  const joined = TIPS_HEAT.flatMap((t) => [t.why, ...t.how, ...(t.warn || [])]).join(' ').toLowerCase();
+  for (const bad of ['саморобн', 'балон', 'вазон']) assert.ok(!joined.includes(bad), bad);
+});
+
+test('2.7.0: посилання «див. пораду N» ведуть саме туди, куди задумано', () => {
+  const want = { 16: 's-under', 29: 'r-together', 34: 'r-leave', 37: 'd-hand', 38: 'd-paper', 61: 'k-noblanket', 62: 'k-hat', 73: 'f-cosigns', 74: 'f-vents', 82: 'f-bottle', 83: 'f-bottle2', 87: 'x-help', 88: 'x-core', 89: 'x-dont', 90: 'x-35' };
+  const refs = new Set();
+  for (const t of TIPS_HEAT) {
+    for (const s of [t.t, t.d || '', t.why, ...t.how, ...(t.warn || [])]) {
+      for (const m of s.matchAll(/порад[уаи]\s+(\d+)(?:–(\d+))?/g)) {
+        const a = Number(m[1]), b = Number(m[2] || m[1]);
+        for (let n = a; n <= b; n++) refs.add(n);
+      }
+    }
+  }
+  assert.ok(refs.size >= 10, `замало перехресних посилань: ${refs.size}`);
+  for (const n of refs) {
+    assert.ok(n in want, `посилання на пораду ${n} не описане в тесті`);
+    assert.equal(TIPS_HEAT[n - 1]?.id, want[n], `порада ${n} — не та`);
+  }
+});
+
+test('2.7.0: пошук знаходить слова з пояснень', async () => {
+  const { searchTips } = await import('./tipsui.js');
+  assert.ok(searchTips('розпирає').some((t) => t.id === 'f-bottle'), 'слово лише з «чому»');
+  assert.ok(searchTips('кулак').some((t) => t.id === 'p-mitts'), 'слово лише з «чому» про рукавиці');
+  assert.ok(searchTips('45°').some((t) => t.id === 'd-caulk'), 'слово з кроків');
+});
