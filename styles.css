@@ -1257,6 +1257,33 @@ input, select, textarea { scroll-margin-top: 112px; scroll-margin-bottom: 24px; 
   .hv-qty { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* ───────────── 100 порад «Зігрітися» (2.6.0) ───────────── */
+
+.now-more {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; margin-top: 6px; padding-top: 10px;
+  border-top: 1px solid var(--line); color: var(--accent-ink); font-weight: 650; text-decoration: none;
+}
+.now-more > .ic:first-child { flex: none; }
+.tip-g .h2 .muted { font-size: 15px; font-weight: 560; }
+.tips { list-style: none; display: grid; gap: 10px; margin: 8px 0 0; padding: 0; }
+.tip {
+  display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+}
+.tip.top { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.tip-n {
+  flex: none; display: grid; place-items: center; min-width: 34px; height: 34px; padding: 0 6px; border-radius: 17px;
+  background: var(--accent-soft); color: var(--accent-ink); font-weight: 750; font-size: 14px; font-variant-numeric: tabular-nums;
+}
+.tip-b { flex: 1; min-width: 0; }
+.tip-t { margin: 0; font-size: 17px; font-weight: 650; line-height: 1.35; }
+.tip-d { margin: 6px 0 0; color: var(--text-2); font-size: 15px; line-height: 1.45; }
+.tip-s { margin: 8px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+.tip-s a { color: var(--text-2); text-underline-offset: 2px; }
+.tip-more { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 0; font-size: 14px; }
+.tip-more a { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+.tip-more .ic { flex: none; width: 16px; height: 16px; }
+
 /* ───────────── Менше анімації ───────────── */
 
 @media (prefers-reduced-motion: reduce) {

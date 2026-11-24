@@ -19,6 +19,8 @@ import { haveToReserveKeys } from './have.js';
 import { haveScreens } from './haveui.js';
 import { simScreens } from './simui.js';
 import { masterScreens } from './masterui.js';
+import { tipsScreens } from './tipsui.js';
+import { TIPS, TIPS_LABEL } from './tips.js';
 import './tools.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
@@ -63,6 +65,7 @@ const ROUTES = [
   [/^\/72$/, () => simScreens.sim()],
   [/^\/master$/, (_m, q) => masterScreens.list(q)],
   [/^\/master\/([\w-]+)$/, (m) => masterScreens.lesson(m[1])],
+  [/^\/tips\/heat$/, (_m, q) => tipsScreens.heat(q)],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
@@ -259,6 +262,8 @@ function viewNeed(need, q) {
       : r.items.map((it, i) => recCard(it, i === 0 && r.items.length > 1)).join('');
   const help = r.wouldHelp.length ? `<p class="hint">${icon('i-info')} Більше варіантів, якщо є: ${esc(r.wouldHelp.join('; '))}. <a href="#/res">Оновити резерв</a></p>` : '';
   const signs = signsFor(need, c);
+  const tips = TIPS[need];
+  const tipsText = tips ? `${tips.length} перевірених порад, ${TIPS_LABEL[need] || esc(meta.label.toLowerCase())}` : '';
   const blocked = r.blocked.length
     ? `<details class="card fold"><summary>${icon('i-alert')}<span>Не рекомендовано зараз (${r.blocked.length})</span></summary>
         <ul class="blocked">${r.blocked.map((b) => `<li><a href="#/s/${b.sol.id}">${esc(b.sol.title)}</a><span>${esc(b.why)}</span></li>`).join('')}</ul></details>` : '';
@@ -271,6 +276,7 @@ function viewNeed(need, q) {
     ${r.irrelevant && !acts.length ? '' : `<section class="card now" aria-labelledby="now-h">
       <h2 id="now-h">Зробіть зараз</h2>
       ${acts.length ? `<ol class="now-list">${acts.map((a, i) => `<li><span class="n" aria-hidden="true">${i + 1}</span>${a.id ? `<a href="#/s/${a.id}">${esc(a.text)}</a>` : `<span>${esc(a.text)}</span>`}</li>`).join('')}</ol>` : `<p>${esc(r.noneText)}</p>`}
+      ${tips ? `<a class="now-more" href="#/tips/${need}">${icon('i-list')}<span>${tipsText}</span>${icon('i-chev', 'end')}</a>` : ''}
     </section>`}
     ${r.irrelevant ? '' : pic(`need-${need}`)}
     ${seg('mode', MODES, mode, 'Скільки є часу')}
@@ -280,6 +286,7 @@ function viewNeed(need, q) {
     ${signs}
     ${blocked}
     <div class="rows">
+      ${tips ? `<a class="row" href="#/tips/${need}">${icon('i-list')}<span>${tipsText}</span>${icon('i-chev', 'end')}</a>` : ''}
       ${HAVE_FOR[need] ? `<a class="row" href="#/have/${HAVE_FOR[need]}">${icon('i-kit')}<span>Підібрати з того, що є під рукою</span>${icon('i-chev', 'end')}</a>` : ''}
       <a class="row" href="#/all?need=${need}">${icon('i-book')}<span>Усі рішення: ${esc(meta.label.toLowerCase())}</span>${icon('i-chev', 'end')}</a>
     </div>`,
