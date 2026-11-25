@@ -58,10 +58,10 @@ test('2.9.0: джерела, рішення, уроки, розділи й ін�
   }
   for (const t of T.filter((x) => x.top)) assert.ok(t.sol || t.ls || t.go || t.tool, `${t.id}: головна порада без переходу`);
   assert.ok(new Set(T.flatMap((t) => t.src)).size >= 45, 'джерел замало');
-  // Кожен розділ із TIP_GO справді використовується якоюсь добіркою, а посилання ведуть у застосунок (2.10.0 додала «Їжу»)
+  // Кожен розділ із TIP_GO справді використовується якоюсь добіркою, а посилання ведуть у застосунок (2.10.0 додала «Їжу», 2.11.0 — «Воду»)
   const used = new Set(Object.values(TIP_SETS).flatMap((x) => x.list).map((t) => t.go).filter(Boolean));
   for (const href of Object.keys(TIP_GO)) {
-    assert.match(href, /^#\/(shelter|prep|bag|sheet|aid|have\/repair|calc\/(heat|water)|tips\/energy\?g=(net|phone)|tips\/heat\?g=safe)$/, href);
+    assert.match(href, /^#\/(shelter|prep|bag|sheet|aid|have\/(repair|water|sanitation)|calc\/(heat|water)|tips\/energy\?g=(net|phone)|tips\/heat\?g=safe)$/, href);
     assert.ok(used.has(href), `розділ ${href} ніде не використано`);
   }
   // Перша допомога — лише посиланням на розділ за наказом МОЗ № 441

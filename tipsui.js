@@ -1,5 +1,5 @@
 // @ts-check
-// Екрани добірок «Як зігрітися», «Як пережити блекаут» (по 100 порад), «Укриття й тривога» (70) і «Їжа без світла» (66):
+// Екрани добірок «Як зігрітися», «Як пережити блекаут» (по 100 порад), «Укриття й тривога» (70), «Їжа без світла» (66) і «Вода без водогону» (63):
 // головні 10, групи, пошук, розгорнуті пояснення, «Цікаво знати» й джерело біля кожної поради.
 // Усі добірки — один шаблон екрана.
 
@@ -7,17 +7,17 @@ import { TIPS_HEAT, TIP_SETS, ALL_TIP_GROUPS, TIP_GO, tipNo } from './tips.js';
 import { SOURCES } from './data.js';
 import { findAny } from './solutions.js';
 import { LESSON_BY_ID } from './master.js';
-import { esc, icon, pageHead, empty, on } from './ui.js';
+import { esc, icon, pageHead, empty, on, plural } from './ui.js';
 import { TOOL_ICON, TOOL_LABEL } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./tips.js').Tip} Tip */
 /** @typedef {import('./tips.js').TipGroup} TipGroup */
-/** @typedef {'heat'|'energy'|'shelter'|'food'} TipNeed */
+/** @typedef {'heat'|'energy'|'shelter'|'food'|'water'} TipNeed */
 /** @typedef {'top'|TipGroup|null} Sel */
 
 /** Пошуковий запит кожної добірки зберігається між переходами в межах сесії. @type {Record<TipNeed, string>} */
-const st = { heat: '', energy: '', shelter: '', food: '' };
+const st = { heat: '', energy: '', shelter: '', food: '', water: '' };
 
 /** Малі літери й один вид апострофа — щоб «з'їсти» і «з’їсти» знаходили одне. @param {string} s */
 const norm = (s) => s.toLowerCase().replace(/['`ʼ]/g, '’');
@@ -166,7 +166,7 @@ function makeView(need) {
     const grp = /** @type {TipGroup} */ (g);
     /** @type {Sel} */
     const sel = g === 'top' ? 'top' : g && set.order.includes(grp) ? grp : null;
-    const title = `${set.title}: ${set.list.length} порад`;
+    const title = `${set.title}: ${set.list.length} ${plural(set.list.length, 'порада', 'поради', 'порад')}`;
     return {
       title,
       tab: need === 'shelter' ? 'shelter' : 'home',
@@ -193,4 +193,4 @@ function makeView(need) {
   };
 }
 
-export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter'), food: makeView('food') };
+export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter'), food: makeView('food'), water: makeView('water') };

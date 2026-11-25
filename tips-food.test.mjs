@@ -265,5 +265,5 @@ test('2.10.0: екран добірки — заголовок, чипи, гол
   // Офлайн: модуль у кеші Service Worker
   const sw = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'./tips-food.js'"), 'tips-food.js у CORE');
-  assert.match(sw, /const VERSION = 'avtonomno-v2\.10\.0'/);
+  assert.match(sw, /const VERSION = 'avtonomno-v2\.\d+\.\d+'/, 'версія кешу — 2.x');
 });

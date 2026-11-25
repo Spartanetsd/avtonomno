@@ -65,7 +65,7 @@ const ROUTES = [
   [/^\/72$/, () => simScreens.sim()],
   [/^\/master$/, (_m, q) => masterScreens.list(q)],
   [/^\/master\/([\w-]+)$/, (m) => masterScreens.lesson(m[1])],
-  [/^\/tips\/(heat|energy|shelter|food)$/, (m, q) => tipsScreens[/** @type {'heat'|'energy'|'shelter'|'food'} */ (m[1])](q)],
+  [/^\/tips\/(heat|energy|shelter|food|water)$/, (m, q) => tipsScreens[/** @type {'heat'|'energy'|'shelter'|'food'|'water'} */ (m[1])](q)],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
@@ -263,7 +263,7 @@ function viewNeed(need, q) {
   const help = r.wouldHelp.length ? `<p class="hint">${icon('i-info')} Більше варіантів, якщо є: ${esc(r.wouldHelp.join('; '))}. <a href="#/res">Оновити резерв</a></p>` : '';
   const signs = signsFor(need, c);
   const tips = TIPS[need];
-  const tipsText = tips ? `${tips.length} перевірених порад, ${TIPS_LABEL[need] || esc(meta.label.toLowerCase())}` : '';
+  const tipsText = tips ? `${tips.length} ${plural(tips.length, 'перевірена порада', 'перевірені поради', 'перевірених порад')}, ${TIPS_LABEL[need] || esc(meta.label.toLowerCase())}` : '';
   const blocked = r.blocked.length
     ? `<details class="card fold"><summary>${icon('i-alert')}<span>Не рекомендовано зараз (${r.blocked.length})</span></summary>
         <ul class="blocked">${r.blocked.map((b) => `<li><a href="#/s/${b.sol.id}">${esc(b.sol.title)}</a><span>${esc(b.why)}</span></li>`).join('')}</ul></details>` : '';
