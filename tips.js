@@ -4,9 +4,10 @@
 // Небезпечних «лайфхаків» тут немає: саморобні обігрівачі, газові балони й відкритий вогонь у житлі — лише як заборони.
 
 import { TIPS_ENERGY, ENERGY_GROUPS, ENERGY_GROUP_ORDER } from './tips-energy.js';
+import { TIPS_SHELTER, SHELTER_GROUPS, SHELTER_GROUP_ORDER } from './tips-shelter.js';
 
 /** @typedef {'cloth'|'parts'|'sleep'|'room'|'drafts'|'heat'|'body'|'care'|'safe'|'help'|'out'} HeatGroup */
-/** @typedef {HeatGroup|import('./tips-energy.js').EnergyGroup} TipGroup */
+/** @typedef {HeatGroup|import('./tips-energy.js').EnergyGroup|import('./tips-shelter.js').ShelterGroup} TipGroup */
 /**
  * @typedef {object} Tip
  * @property {string} id
@@ -20,6 +21,9 @@ import { TIPS_ENERGY, ENERGY_GROUPS, ENERGY_GROUP_ORDER } from './tips-energy.js
  * @property {string} [why] чому це працює (2.7.0)
  * @property {string[]} [how] як зробити: кроки
  * @property {string[]} [warn] на що зважати
+ * @property {string} [fact] перевірений факт із джерела для блоку «Цікаво знати» (2.9.0)
+ * @property {string} [go] внутрішнє посилання на розділ застосунку — ключ TIP_GO (2.9.0)
+ * @property {'light'|'breathe'|'signal'} [tool] інструмент на весь екран просто з поради (2.9.0)
  */
 
 /** @type {Record<HeatGroup, {label:string, sub:string}>} */
@@ -667,22 +671,35 @@ export const TIPS = /** @type {Partial<Record<import('./types').Need, Tip[]>>} *
 /** Як назвати добірку в посиланні: «100 перевірених порад, як зігрітися». */
 export const TIPS_LABEL = /** @type {Partial<Record<import('./types').Need, string>>} */ ({ heat: 'як зігрітися', energy: 'як пережити блекаут' });
 
-/** Назви груп обох добірок разом — для пошуку (id груп не перетинаються). */
-export const ALL_TIP_GROUPS = /** @type {Record<TipGroup, {label:string, sub:string}>} */ ({ ...TIP_GROUPS, ...ENERGY_GROUPS });
+/** Назви груп усіх добірок разом — для пошуку (id груп не перетинаються). */
+export const ALL_TIP_GROUPS = /** @type {Record<TipGroup, {label:string, sub:string}>} */ ({ ...TIP_GROUPS, ...ENERGY_GROUPS, ...SHELTER_GROUPS });
+
+/** Розділи застосунку, на які порада може послатися полем go: підпис і значок. */
+export const TIP_GO = /** @type {Record<string, {t:string, ic:string}>} */ ({
+  '#/shelter': { t: 'Екран «Укриття»: що робити під час тривоги', ic: 'i-shelter' },
+  '#/prep': { t: 'Підготувати укриття заздалегідь', ic: 'i-list' },
+  '#/bag': { t: 'Тривожна валізка: чек-лист', ic: 'i-bag' },
+  '#/sheet': { t: 'Пам’ятка для укриття — роздрукувати', ic: 'i-print' },
+  '#/aid': { t: 'Перша допомога: кровотеча, реанімація, удавився', ic: 'i-aid' },
+  '#/have/repair': { t: 'Розбите вікно: рішення з наявного', ic: 'i-kit' },
+  '#/tips/energy?g=net': { t: 'Зв’язок без світла: поради «Енергії»', ic: 'i-phone' },
+  '#/tips/energy?g=phone': { t: 'Як зберегти заряд телефону: поради «Енергії»', ic: 'i-battery' },
+});
 
 /**
  * Усе, що потрібно екрану добірки: список, групи, порядок, заголовок, підказки.
  * @typedef {{list: Tip[], order: TipGroup[], title: string, back: string, ph: string, topHint: string}} TipSet
  */
-/** @type {{heat: TipSet, energy: TipSet}} */
+/** @type {{heat: TipSet, energy: TipSet, shelter: TipSet}} */
 export const TIP_SETS = {
   heat: { list: TIPS_HEAT, order: TIP_GROUP_ORDER, title: 'Як зігрітися', back: '#/need/heat', ph: 'Наприклад: штори, грілка, немовля', topHint: 'Почніть із цих десяти — вони працюють без світла й опалення.' },
   energy: { list: TIPS_ENERGY, order: ENERGY_GROUP_ORDER, title: 'Як пережити блекаут', back: '#/need/energy', ph: 'Наприклад: павербанк, ліфт', topHint: 'Почніть із цих десяти — вони найбільше допомагають, коли світла немає.' },
+  shelter: { list: TIPS_SHELTER, order: SHELTER_GROUP_ORDER, title: 'Укриття й тривога', back: '#/shelter', ph: 'Наприклад: дрон, вікна, уламки', topHint: 'Почніть із цих десяти — вони найважливіші, коли лунає сирена.' },
 };
 
-/** Номер поради (1–100) за її місцем у своєму списку. @param {Tip} tip */
+/** Номер поради за її місцем у своєму списку. @param {Tip} tip */
 export const tipNo = (tip) => {
-  for (const list of [TIPS_HEAT, TIPS_ENERGY]) {
+  for (const list of [TIPS_HEAT, TIPS_ENERGY, TIPS_SHELTER]) {
     const i = list.indexOf(tip);
     if (i >= 0) return i + 1;
   }

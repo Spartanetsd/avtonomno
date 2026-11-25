@@ -12,6 +12,7 @@ import {
   itemsFor, progress, applies, elapsedMin, durText, daysSince, bagDue, sheetText,
 } from './shelter.js';
 import { qrSvg } from './qr.js';
+import { TIPS_SHELTER } from './tips-shelter.js';
 import { app, on, esc, icon, note, pageHead, pic, sourcesList, bar, plural, toTop } from './ui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
@@ -23,6 +24,15 @@ export const TOOL_LABEL = { light: 'Нічник', breathe: 'Дихаємо ра
 
 /** @param {string[]} a */
 const uniq = (a) => [...new Set(a)];
+
+/** «70 перевірених порад» — з правильною формою слова. */
+const tipsCount = () => `${TIPS_SHELTER.length} ${plural(TIPS_SHELTER.length, 'перевірена порада', 'перевірені поради', 'перевірених порад')}`;
+
+/**
+ * Рядок-посилання на добірку «Укриття й тривога» чи її групу.
+ * @param {string} g група або '' для всієї добірки @param {string} ic значок @param {string} text підпис
+ */
+const tipsRow = (g, ic, text) => `<a class="row" href="#/tips/shelter${g ? `?g=${g}` : ''}">${icon(ic)}<span>${esc(text)}</span>${icon('i-chev', 'end')}</a>`;
 
 /** Короткий перелік джерел посиланнями. @param {string[]} keys */
 function srcLinks(keys) {
@@ -107,6 +117,7 @@ function alarmView() {
     <h2 class="h2">Якщо до укриття не дістатися</h2>
     ${ALARM_FOLDS.map((f) => foldHtml(f)).join('')}
     <div class="rows">
+      ${tipsRow('', 'i-list', `Укриття й тривога: ${tipsCount()}`)}
       <a class="row" href="#/bag">${icon('i-bag')}<span>Тривожна валізка <span class="muted">· ${b.done} з ${b.total}</span></span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/prep">${icon('i-list')}<span>Підготувати укриття заздалегідь</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/sheet">${icon('i-print')}<span>Пам’ятка для укриття — роздрукувати</span>${icon('i-chev', 'end')}</a>
@@ -138,6 +149,8 @@ function inView() {
     ${WHILE_BLOCKS.map((b) => foldHtml(b, !!b.when && applies(b, c))).join('')}
     ${foldHtml(BLOCKED)}
     <div class="rows">
+      ${tipsRow('calm', 'i-wave', 'Заспокоїтися: вправи МОЗ «Ти як?»')}
+      ${tipsRow('', 'i-list', `Поки чекаємо відбою: ${tipsCount()}`)}
       <a class="row" href="#/aid">${icon('i-aid')}<span>Перша допомога: кровотеча, реанімація, удавився</span>${icon('i-chev', 'end')}</a>
       <a class="row" href="#/share">${icon('i-share')}<span>Показати сусідам QR-код застосунку</span>${icon('i-chev', 'end')}</a>
     </div>
@@ -164,7 +177,10 @@ function afterView() {
     <h2 class="h2">Що зробити після відбою</h2>
     <ol class="steps">${AFTER_STEPS.map((t, i) => `<li><button type="button" class="step" data-act="af-step" data-i="${i}" aria-pressed="${afterDone.has(i)}"><span class="box" aria-hidden="true">${icon('i-check')}</span><span class="num">${i + 1}</span><span class="txt">${esc(t)}</span></button></li>`).join('')}</ol>
     <button class="btn ghost wide" type="button" data-act="sh-share" data-v="after">${icon('i-share')}<span>Повідомити рідних, що все гаразд</span></button>
-    <div class="rows"><a class="row" href="#/aid">${icon('i-aid')}<span>Є поранені — перша допомога</span>${icon('i-chev', 'end')}</a></div>
+    <div class="rows">
+      <a class="row" href="#/aid">${icon('i-aid')}<span>Є поранені — перша допомога</span>${icon('i-chev', 'end')}</a>
+      ${tipsRow('after', 'i-list', 'Після удару: уламки, газ, пожежа, завали')}
+    </div>
     <section class="sec"><h2>Джерела</h2>${sourcesList(AFTER_SOURCES)}</section>
     <div class="row-btns sticky-actions even">
       <button class="btn primary" type="button" data-act="sh-finish">Завершити</button>
@@ -217,6 +233,7 @@ function bagView() {
     <section class="card prog" id="bag-prog">${progHtml('bag', progress(BAG, d.bag, c), d.bagAt)}</section>
     ${itemsFor(BAG, c).map((g) => checkGroup('bag', g, set)).join('')}
     <p class="hint">${icon('i-info')} Пункти для дітей і тварин з’являються, якщо вони є в «Моєму стані сьогодні».</p>
+    <div class="rows">${tipsRow('bag', 'i-list', 'Поради до валізки: документи, ліки, тварини, світло')}</div>
     <section class="sec"><h2>Джерела</h2>${sourcesList(BAG_SOURCES)}</section>`,
   };
 }
@@ -244,6 +261,7 @@ function prepView() {
       <a class="row" href="#/sheet">${icon('i-print')}<span>Пам’ятка для укриття — роздрукувати</span>${icon('i-chev', 'end')}</a>
       ${heat ? `<a class="row" href="#/s/${heat.id}">${icon('i-thermo')}<span>${esc(heat.title)}</span>${icon('i-chev', 'end')}</a>` : ''}
       <a class="row" href="#/shelter">${icon('i-shelter')}<span>Що робити під час тривоги</span>${icon('i-chev', 'end')}</a>
+      ${tipsRow('find', 'i-list', 'Як знайти й облаштувати укриття: поради')}
     </div>
     <section class="sec"><h2>Джерела</h2>${sourcesList(PREP_SOURCES)}</section>`,
     after() {

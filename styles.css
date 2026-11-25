@@ -1306,6 +1306,18 @@ input, select, textarea { scroll-margin-top: 112px; scroll-margin-bottom: 24px; 
 .tip-more a { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: var(--accent-ink); font-weight: 600; text-decoration: none; }
 .tip-more .ic { flex: none; width: 16px; height: 16px; }
 
+/* ───────────── «Укриття й тривога»: «Цікаво знати» й інструменти (2.9.0) ───────────── */
+
+.tip-fact { margin: 10px 0 2px; padding: 10px 12px; background: var(--info-bg); border: 1px solid var(--info-line); border-radius: var(--r-sm); }
+.tip-xb .tip-fact .tip-h { margin: 0 0 4px; }
+.tip-hf { display: flex; align-items: center; gap: 6px; color: var(--info); }
+.tip-hf .ic { flex: none; width: 16px; height: 16px; }
+.tip-more .tip-tool {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0; border: 0; background: none;
+  color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer; text-align: start;
+}
+.tip-more a span, .tip-more .tip-tool span { overflow-wrap: anywhere; }
+
 /* ───────────── Менше анімації ───────────── */
 
 @media (prefers-reduced-motion: reduce) {
