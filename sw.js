@@ -5,7 +5,7 @@
 // з кожною версією коду. Нова картинка дозберігається сама (кеш доповнюється лише відсутніми),
 // а замінили наявну — збільште PICS_CACHE.
 
-const VERSION = 'avtonomno-v2.10.0';
+const VERSION = 'avtonomno-v2.11.0';
 const PICS_CACHE = 'avtonomno-pics-v1';
 const PREFIX = 'avtonomno-';
 
@@ -45,7 +45,7 @@ const CORE = [
   './lessons-grow.js',
   './lessons-nature.js',
   './lessons-water.js',
-  './tips.js', './tips-energy.js', './tips-shelter.js', './tips-food.js',
+  './tips.js', './tips-energy.js', './tips-shelter.js', './tips-food.js', './tips-water.js',
   './tipsui.js',
   './manifest.webmanifest',
   './icon.svg',
