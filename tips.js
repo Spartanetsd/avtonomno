@@ -3,7 +3,10 @@
 // або університетське (SOURCES у data.js). Номер поради — її місце в масиві (1–100), він стабільний.
 // Небезпечних «лайфхаків» тут немає: саморобні обігрівачі, газові балони й відкритий вогонь у житлі — лише як заборони.
 
-/** @typedef {'cloth'|'parts'|'sleep'|'room'|'drafts'|'heat'|'body'|'care'|'safe'|'help'|'out'} TipGroup */
+import { TIPS_ENERGY, ENERGY_GROUPS, ENERGY_GROUP_ORDER } from './tips-energy.js';
+
+/** @typedef {'cloth'|'parts'|'sleep'|'room'|'drafts'|'heat'|'body'|'care'|'safe'|'help'|'out'} HeatGroup */
+/** @typedef {HeatGroup|import('./tips-energy.js').EnergyGroup} TipGroup */
 /**
  * @typedef {object} Tip
  * @property {string} id
@@ -19,7 +22,7 @@
  * @property {string[]} [warn] на що зважати
  */
 
-/** @type {Record<TipGroup, {label:string, sub:string}>} */
+/** @type {Record<HeatGroup, {label:string, sub:string}>} */
 export const TIP_GROUPS = {
   cloth: { label: 'Одяг', sub: 'шари, тканини, сухість' },
   parts: { label: 'Голова, руки, ноги', sub: 'звідки тепло йде найшвидше' },
@@ -34,7 +37,7 @@ export const TIP_GROUPS = {
   out: { label: 'Надворі', sub: 'дорога, авто, тварини' },
 };
 
-/** @type {TipGroup[]} */
+/** @type {HeatGroup[]} */
 export const TIP_GROUP_ORDER = ['cloth', 'parts', 'sleep', 'room', 'drafts', 'heat', 'body', 'care', 'safe', 'help', 'out'];
 
 /** @type {Tip[]} */
@@ -659,10 +662,29 @@ for (const t of TIPS_HEAT) {
   if (m.add) for (const k of m.add) if (!t.src.includes(k)) t.src.push(k);
 }
 
-/** Поради за потребою головного екрана. Поки що — лише «Зігрітися». */
-export const TIPS = /** @type {Partial<Record<import('./types').Need, Tip[]>>} */ ({ heat: TIPS_HEAT });
+/** Поради за потребою головного екрана: «Зігрітися» (2.6.0) і «Енергія» (2.8.0). */
+export const TIPS = /** @type {Partial<Record<import('./types').Need, Tip[]>>} */ ({ heat: TIPS_HEAT, energy: TIPS_ENERGY });
 /** Як назвати добірку в посиланні: «100 перевірених порад, як зігрітися». */
-export const TIPS_LABEL = /** @type {Partial<Record<import('./types').Need, string>>} */ ({ heat: 'як зігрітися' });
+export const TIPS_LABEL = /** @type {Partial<Record<import('./types').Need, string>>} */ ({ heat: 'як зігрітися', energy: 'як пережити блекаут' });
 
-/** Номер поради (1–100) за її місцем у списку. @param {Tip} tip */
-export const tipNo = (tip) => TIPS_HEAT.indexOf(tip) + 1;
+/** Назви груп обох добірок разом — для пошуку (id груп не перетинаються). */
+export const ALL_TIP_GROUPS = /** @type {Record<TipGroup, {label:string, sub:string}>} */ ({ ...TIP_GROUPS, ...ENERGY_GROUPS });
+
+/**
+ * Усе, що потрібно екрану добірки: список, групи, порядок, заголовок, підказки.
+ * @typedef {{list: Tip[], order: TipGroup[], title: string, back: string, ph: string, topHint: string}} TipSet
+ */
+/** @type {{heat: TipSet, energy: TipSet}} */
+export const TIP_SETS = {
+  heat: { list: TIPS_HEAT, order: TIP_GROUP_ORDER, title: 'Як зігрітися', back: '#/need/heat', ph: 'Наприклад: штори, грілка, немовля', topHint: 'Почніть із цих десяти — вони працюють без світла й опалення.' },
+  energy: { list: TIPS_ENERGY, order: ENERGY_GROUP_ORDER, title: 'Як пережити блекаут', back: '#/need/energy', ph: 'Наприклад: павербанк, ліфт', topHint: 'Почніть із цих десяти — вони найбільше допомагають, коли світла немає.' },
+};
+
+/** Номер поради (1–100) за її місцем у своєму списку. @param {Tip} tip */
+export const tipNo = (tip) => {
+  for (const list of [TIPS_HEAT, TIPS_ENERGY]) {
+    const i = list.indexOf(tip);
+    if (i >= 0) return i + 1;
+  }
+  return 0;
+};

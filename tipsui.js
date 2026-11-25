@@ -1,7 +1,8 @@
 // @ts-check
-// Екран «Як зігрітися: 100 порад»: головні 10, групи, пошук, розгорнуті пояснення й джерело біля кожної поради.
+// Екрани добірок «Як зігрітися» і «Як пережити блекаут» (по 100 порад): головні 10, групи, пошук,
+// розгорнуті пояснення й джерело біля кожної поради. Обидві добірки — один шаблон екрана.
 
-import { TIPS_HEAT, TIP_GROUPS, TIP_GROUP_ORDER, tipNo } from './tips.js';
+import { TIPS_HEAT, TIP_SETS, ALL_TIP_GROUPS, tipNo } from './tips.js';
 import { SOURCES } from './data.js';
 import { findAny } from './solutions.js';
 import { LESSON_BY_ID } from './master.js';
@@ -10,10 +11,11 @@ import { esc, icon, pageHead, empty, on } from './ui.js';
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./tips.js').Tip} Tip */
 /** @typedef {import('./tips.js').TipGroup} TipGroup */
+/** @typedef {'heat'|'energy'} TipNeed */
 /** @typedef {'top'|TipGroup|null} Sel */
 
-/** Пошуковий запит зберігається між переходами в межах сесії. */
-const st = { q: '' };
+/** Пошуковий запит кожної добірки зберігається між переходами в межах сесії. @type {Record<TipNeed, string>} */
+const st = { heat: '', energy: '' };
 
 /** Малі літери й один вид апострофа — щоб «з'їсти» і «з’їсти» знаходили одне. @param {string} s */
 const norm = (s) => s.toLowerCase().replace(/['`ʼ]/g, '’');
@@ -23,8 +25,8 @@ const norm = (s) => s.toLowerCase().replace(/['`ʼ]/g, '’');
  * @param {string} s
  */
 const nb = (s) => s
-  .replace(/(\d) (?=(?:°C|Вт|мм|см|м|%|км\/год|хв|хвилин|років|роки|разів|рази|раз)(?![а-яіїєґ]))/g, '$1 ')
-  .replace(/ — /g, ' — ');
+  .replace(/(\d) (?=(?:°C|кВт|Вт|мм|см|м|с|%|км\/год|хв|хвилин|годин|години|років|роки|разів|рази|раз)(?![а-яіїєґ]))/g, '$1\u00A0')
+  .replace(/ — /g, '\u00A0— ');
 
 /** Коротка частина поради — те, що видно без розгортання. @param {Tip} t */
 const shortText = (t) => norm(`${t.t} ${t.d || ''}`);
@@ -34,7 +36,8 @@ const longText = (t) => norm([t.why || '', ...(t.how || []), ...(t.warn || [])].
 
 /** Увесь текст поради для пошуку, разом із групою й джерелами. @param {Tip} t */
 function hay(t) {
-  return `${shortText(t)} ${longText(t)} ${norm([TIP_GROUPS[t.g].label, TIP_GROUPS[t.g].sub, ...t.src.map((k) => SOURCES[k]?.org || '')].join(' '))}`;
+  const g = ALL_TIP_GROUPS[t.g];
+  return `${shortText(t)} ${longText(t)} ${norm([g.label, g.sub, ...t.src.map((k) => SOURCES[k]?.org || '')].join(' '))}`;
 }
 
 /** @param {string} q */
@@ -50,11 +53,12 @@ export function searchTips(q, list = TIPS_HEAT) {
   return list.filter((t) => words.every((w) => hay(t).includes(w)));
 }
 
-/** Добірка за фільтром. @param {Sel} sel */
-function picked(sel) {
-  if (sel === 'top') return TIPS_HEAT.filter((t) => t.top);
-  if (sel) return TIPS_HEAT.filter((t) => t.g === sel);
-  return TIPS_HEAT;
+/** Добірка за фільтром. @param {TipNeed} need @param {Sel} sel */
+function picked(need, sel) {
+  const list = TIP_SETS[need].list;
+  if (sel === 'top') return list.filter((t) => t.top);
+  if (sel) return list.filter((t) => t.g === sel);
+  return list;
 }
 
 /** Розгорнуте пояснення: чому працює, як зробити, на що зважати. @param {Tip} t @param {boolean} open */
@@ -94,10 +98,11 @@ function tipHtml(t, open = false) {
   </li>`;
 }
 
-/** @param {Sel} sel */
-function listBody(sel) {
-  const q = st.q.trim();
-  const base = picked(sel);
+/** @param {TipNeed} need @param {Sel} sel */
+function listBody(need, sel) {
+  const set = TIP_SETS[need];
+  const q = st[need].trim();
+  const base = picked(need, sel);
   if (q) {
     const res = searchTips(q, base);
     if (!res.length) return empty('empty-search', 'Нічого не знайдено', `Спробуйте інше слово${sel ? ' або оберіть «Усі»' : ''}.`);
@@ -107,10 +112,11 @@ function listBody(sel) {
     return `<p class="count">Знайдено порад: ${res.length}</p><ul class="tips">${res.map((t) => tipHtml(t, open(t))).join('')}</ul>`;
   }
   if (sel === 'top') return `<ul class="tips">${base.map((t) => tipHtml(t, true)).join('')}</ul>`;
-  return (sel ? [sel] : TIP_GROUP_ORDER).map((g) => {
-    const items = TIPS_HEAT.filter((t) => t.g === g);
+  return (sel ? [sel] : set.order).map((g) => {
+    const items = set.list.filter((t) => t.g === g);
+    const G = ALL_TIP_GROUPS[g];
     return `<section class="tip-g" aria-labelledby="tg-${g}">
-      <h2 class="h2" id="tg-${g}">${esc(TIP_GROUPS[g].label)} <span class="muted">· ${esc(TIP_GROUPS[g].sub)} · ${items.length}</span></h2>
+      <h2 class="h2" id="tg-${g}">${esc(G.label)} <span class="muted">· ${esc(G.sub)} · ${items.length}</span></h2>
       <ul class="tips">${items.map((t) => tipHtml(t)).join('')}</ul>
     </section>`;
   }).join('');
@@ -140,40 +146,45 @@ on({
   },
 });
 
-/** @param {string} v @param {string} label @param {boolean} cur */
-function chipLink(v, label, cur) {
-  return `<a class="chip" href="#/tips/heat${v ? `?g=${v}` : ''}" aria-current="${cur ? 'page' : 'false'}">${cur ? icon('i-check') : ''}<span>${esc(label)}</span></a>`;
+/** @param {TipNeed} need @param {string} v @param {string} label @param {boolean} cur */
+function chipLink(need, v, label, cur) {
+  return `<a class="chip" href="#/tips/${need}${v ? `?g=${v}` : ''}" aria-current="${cur ? 'page' : 'false'}">${cur ? icon('i-check') : ''}<span>${esc(label)}</span></a>`;
 }
 
-/** @param {URLSearchParams} q @returns {View} */
-function heatView(q) {
-  const g = q.get('g');
-  /** @type {Sel} */
-  const sel = g === 'top' ? 'top' : g && g in TIP_GROUPS ? /** @type {TipGroup} */ (g) : null;
-  const title = `Як зігрітися: ${TIPS_HEAT.length} порад`;
-  return {
-    title,
-    tab: 'home',
-    html: `${pageHead(title, '#/need/heat', 'Кожна — з поясненням, кроками й офіційним чи університетським джерелом')}
-    <div class="chips ms-chips tp-chips" role="group" aria-label="Добірка порад">
-      ${chipLink('top', `Головні ${TIPS_HEAT.filter((t) => t.top).length}`, sel === 'top')}
-      ${chipLink('', `Усі ${TIPS_HEAT.length}`, sel === null)}
-      ${TIP_GROUP_ORDER.map((x) => chipLink(x, TIP_GROUPS[x].label, sel === x)).join('')}
-    </div>
-    <div class="search">${icon('i-search')}<input id="tp-q" type="search" inputmode="search" autocomplete="off" placeholder="Наприклад: штори, грілка, немовля" aria-label="Пошук порад" value="${esc(st.q)}"></div>
-    <p class="hint">${sel === 'top'
-      ? `${icon('i-star-f')} Почніть із цих десяти — вони працюють без світла й опалення.`
-      : `${icon('i-info')} Під кожною порадою — «Чому й як зробити». Номер поради не змінюється.`}</p>
-    <button type="button" class="btn ghost tp-all" data-act="tips-all" aria-pressed="false">${icon('i-layers')}<span>Розгорнути всі пояснення</span></button>
-    <div id="tp-out" aria-live="polite">${listBody(sel)}</div>`,
-    after() {
-      const inp = /** @type {HTMLInputElement|null} */ (document.getElementById('tp-q'));
-      const out = document.getElementById('tp-out');
-      inp?.addEventListener('input', () => { st.q = inp.value; if (out) out.innerHTML = listBody(sel); syncAllBtn(); });
-      out?.addEventListener('toggle', syncAllBtn, true);
-      syncAllBtn();
-    },
+/** Екран однієї добірки. @param {TipNeed} need */
+function makeView(need) {
+  const set = TIP_SETS[need];
+  /** @param {URLSearchParams} q @returns {View} */
+  return (q) => {
+    const g = q.get('g');
+    const grp = /** @type {TipGroup} */ (g);
+    /** @type {Sel} */
+    const sel = g === 'top' ? 'top' : g && set.order.includes(grp) ? grp : null;
+    const title = `${set.title}: ${set.list.length} порад`;
+    return {
+      title,
+      tab: 'home',
+      html: `${pageHead(title, set.back, 'Кожна — з поясненням, кроками й офіційним чи університетським джерелом')}
+      <div class="chips ms-chips tp-chips" role="group" aria-label="Добірка порад">
+        ${chipLink(need, 'top', `Головні ${set.list.filter((t) => t.top).length}`, sel === 'top')}
+        ${chipLink(need, '', `Усі ${set.list.length}`, sel === null)}
+        ${set.order.map((x) => chipLink(need, x, ALL_TIP_GROUPS[x].label, sel === x)).join('')}
+      </div>
+      <div class="search">${icon('i-search')}<input id="tp-q" type="search" inputmode="search" autocomplete="off" placeholder="${esc(set.ph)}" aria-label="Пошук порад" value="${esc(st[need])}"></div>
+      <p class="hint">${sel === 'top'
+        ? `${icon('i-star-f')} ${esc(set.topHint)}`
+        : `${icon('i-info')} Під кожною порадою — «Чому й як зробити». Номер поради не змінюється.`}</p>
+      <button type="button" class="btn ghost tp-all" data-act="tips-all" aria-pressed="false">${icon('i-layers')}<span>Розгорнути всі пояснення</span></button>
+      <div id="tp-out" aria-live="polite">${listBody(need, sel)}</div>`,
+      after() {
+        const inp = /** @type {HTMLInputElement|null} */ (document.getElementById('tp-q'));
+        const out = document.getElementById('tp-out');
+        inp?.addEventListener('input', () => { st[need] = inp.value; if (out) out.innerHTML = listBody(need, sel); syncAllBtn(); });
+        out?.addEventListener('toggle', syncAllBtn, true);
+        syncAllBtn();
+      },
+    };
   };
 }
 
-export const tipsScreens = { heat: heatView };
+export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy') };

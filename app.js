@@ -65,7 +65,7 @@ const ROUTES = [
   [/^\/72$/, () => simScreens.sim()],
   [/^\/master$/, (_m, q) => masterScreens.list(q)],
   [/^\/master\/([\w-]+)$/, (m) => masterScreens.lesson(m[1])],
-  [/^\/tips\/heat$/, (_m, q) => tipsScreens.heat(q)],
+  [/^\/tips\/(heat|energy)$/, (m, q) => (m[1] === 'energy' ? tipsScreens.energy : tipsScreens.heat)(q)],
   [/^\/res$/, () => screens.resources()],
   [/^\/reserve$/, () => screens.reserve()],
   [/^\/state$/, () => screens.state()],
