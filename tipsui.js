@@ -13,11 +13,11 @@ import { TOOL_ICON, TOOL_LABEL } from './shelterui.js';
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./tips.js').Tip} Tip */
 /** @typedef {import('./tips.js').TipGroup} TipGroup */
-/** @typedef {'heat'|'energy'|'shelter'|'food'|'water'} TipNeed */
+/** @typedef {'heat'|'energy'|'shelter'|'food'|'water'|'hygiene'} TipNeed */
 /** @typedef {'top'|TipGroup|null} Sel */
 
 /** Пошуковий запит кожної добірки зберігається між переходами в межах сесії. @type {Record<TipNeed, string>} */
-const st = { heat: '', energy: '', shelter: '', food: '', water: '' };
+const st = { heat: '', energy: '', shelter: '', food: '', water: '', hygiene: '' };
 
 /** Малі літери й один вид апострофа — щоб «з'їсти» і «з’їсти» знаходили одне. @param {string} s */
 const norm = (s) => s.toLowerCase().replace(/['`ʼ]/g, '’');
@@ -193,4 +193,4 @@ function makeView(need) {
   };
 }
 
-export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter'), food: makeView('food'), water: makeView('water') };
+export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter'), food: makeView('food'), water: makeView('water'), hygiene: makeView('hygiene') };

@@ -284,7 +284,7 @@ test('2.11.0: екран добірки — заголовок із правил
   // Офлайн: модуль у кеші Service Worker, версія 2.11.0
   const sw = readFileSync(new URL('./sw.js', import.meta.url), 'utf8');
   assert.ok(sw.includes("'./tips-water.js'"), 'tips-water.js у CORE');
-  assert.match(sw, /const VERSION = 'avtonomno-v2\.11\.0'/);
+  assert.match(sw, /const VERSION = 'avtonomno-v2\.\d+\.\d+'/);
   const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
-  assert.equal(pkg.version, '2.11.0');
+  assert.match(pkg.version, /^2\.\d+\.\d+$/);
 });

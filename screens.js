@@ -14,7 +14,7 @@ import { readyHtml } from './shelterui.js';
 
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 
-const VERSION = '2.11.0';
+const VERSION = '2.12.0';
 
 /* ───────────── Допоміжні ───────────── */
 
