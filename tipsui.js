@@ -1,5 +1,5 @@
 // @ts-check
-// Екрани добірок «Як зігрітися», «Як пережити блекаут» (по 100 порад) і «Укриття й тривога» (70 порад):
+// Екрани добірок «Як зігрітися», «Як пережити блекаут» (по 100 порад), «Укриття й тривога» (70) і «Їжа без світла» (66):
 // головні 10, групи, пошук, розгорнуті пояснення, «Цікаво знати» й джерело біля кожної поради.
 // Усі добірки — один шаблон екрана.
 
@@ -13,11 +13,11 @@ import { TOOL_ICON, TOOL_LABEL } from './shelterui.js';
 /** @typedef {{title:string, html:string, tab:string, after?:() => void}} View */
 /** @typedef {import('./tips.js').Tip} Tip */
 /** @typedef {import('./tips.js').TipGroup} TipGroup */
-/** @typedef {'heat'|'energy'|'shelter'} TipNeed */
+/** @typedef {'heat'|'energy'|'shelter'|'food'} TipNeed */
 /** @typedef {'top'|TipGroup|null} Sel */
 
 /** Пошуковий запит кожної добірки зберігається між переходами в межах сесії. @type {Record<TipNeed, string>} */
-const st = { heat: '', energy: '', shelter: '' };
+const st = { heat: '', energy: '', shelter: '', food: '' };
 
 /** Малі літери й один вид апострофа — щоб «з'їсти» і «з’їсти» знаходили одне. @param {string} s */
 const norm = (s) => s.toLowerCase().replace(/['`ʼ]/g, '’');
@@ -193,4 +193,4 @@ function makeView(need) {
   };
 }
 
-export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter') };
+export const tipsScreens = { heat: makeView('heat'), energy: makeView('energy'), shelter: makeView('shelter'), food: makeView('food') };

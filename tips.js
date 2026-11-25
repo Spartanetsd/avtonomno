@@ -5,9 +5,10 @@
 
 import { TIPS_ENERGY, ENERGY_GROUPS, ENERGY_GROUP_ORDER } from './tips-energy.js';
 import { TIPS_SHELTER, SHELTER_GROUPS, SHELTER_GROUP_ORDER } from './tips-shelter.js';
+import { TIPS_FOOD, FOOD_GROUPS, FOOD_GROUP_ORDER } from './tips-food.js';
 
 /** @typedef {'cloth'|'parts'|'sleep'|'room'|'drafts'|'heat'|'body'|'care'|'safe'|'help'|'out'} HeatGroup */
-/** @typedef {HeatGroup|import('./tips-energy.js').EnergyGroup|import('./tips-shelter.js').ShelterGroup} TipGroup */
+/** @typedef {HeatGroup|import('./tips-energy.js').EnergyGroup|import('./tips-shelter.js').ShelterGroup|import('./tips-food.js').FoodGroup} TipGroup */
 /**
  * @typedef {object} Tip
  * @property {string} id
@@ -666,13 +667,13 @@ for (const t of TIPS_HEAT) {
   if (m.add) for (const k of m.add) if (!t.src.includes(k)) t.src.push(k);
 }
 
-/** Поради за потребою головного екрана: «Зігрітися» (2.6.0) і «Енергія» (2.8.0). */
-export const TIPS = /** @type {Partial<Record<import('./types').Need, Tip[]>>} */ ({ heat: TIPS_HEAT, energy: TIPS_ENERGY });
+/** Поради за потребою головного екрана: «Зігрітися» (2.6.0), «Енергія» (2.8.0) і «Їжа» (2.10.0). */
+export const TIPS = /** @type {Partial<Record<import('./types').Need, Tip[]>>} */ ({ heat: TIPS_HEAT, energy: TIPS_ENERGY, food: TIPS_FOOD });
 /** Як назвати добірку в посиланні: «100 перевірених порад, як зігрітися». */
-export const TIPS_LABEL = /** @type {Partial<Record<import('./types').Need, string>>} */ ({ heat: 'як зігрітися', energy: 'як пережити блекаут' });
+export const TIPS_LABEL = /** @type {Partial<Record<import('./types').Need, string>>} */ ({ heat: 'як зігрітися', energy: 'як пережити блекаут', food: 'як зберегти й приготувати їжу без світла' });
 
 /** Назви груп усіх добірок разом — для пошуку (id груп не перетинаються). */
-export const ALL_TIP_GROUPS = /** @type {Record<TipGroup, {label:string, sub:string}>} */ ({ ...TIP_GROUPS, ...ENERGY_GROUPS, ...SHELTER_GROUPS });
+export const ALL_TIP_GROUPS = /** @type {Record<TipGroup, {label:string, sub:string}>} */ ({ ...TIP_GROUPS, ...ENERGY_GROUPS, ...SHELTER_GROUPS, ...FOOD_GROUPS });
 
 /** Розділи застосунку, на які порада може послатися полем go: підпис і значок. */
 export const TIP_GO = /** @type {Record<string, {t:string, ic:string}>} */ ({
@@ -684,22 +685,26 @@ export const TIP_GO = /** @type {Record<string, {t:string, ic:string}>} */ ({
   '#/have/repair': { t: 'Розбите вікно: рішення з наявного', ic: 'i-kit' },
   '#/tips/energy?g=net': { t: 'Зв’язок без світла: поради «Енергії»', ic: 'i-phone' },
   '#/tips/energy?g=phone': { t: 'Як зберегти заряд телефону: поради «Енергії»', ic: 'i-battery' },
+  '#/tips/heat?g=safe': { t: 'Чадний газ і безпечне тепло: поради «Зігрітися»', ic: 'i-shield' },
+  '#/calc/heat': { t: 'Калькулятор: скільки енергії, щоб закип’ятити воду', ic: 'i-calc' },
+  '#/calc/water': { t: 'Калькулятор запасу води на кілька діб', ic: 'i-drop' },
 });
 
 /**
  * Усе, що потрібно екрану добірки: список, групи, порядок, заголовок, підказки.
  * @typedef {{list: Tip[], order: TipGroup[], title: string, back: string, ph: string, topHint: string}} TipSet
  */
-/** @type {{heat: TipSet, energy: TipSet, shelter: TipSet}} */
+/** @type {{heat: TipSet, energy: TipSet, shelter: TipSet, food: TipSet}} */
 export const TIP_SETS = {
   heat: { list: TIPS_HEAT, order: TIP_GROUP_ORDER, title: 'Як зігрітися', back: '#/need/heat', ph: 'Наприклад: штори, грілка, немовля', topHint: 'Почніть із цих десяти — вони працюють без світла й опалення.' },
   energy: { list: TIPS_ENERGY, order: ENERGY_GROUP_ORDER, title: 'Як пережити блекаут', back: '#/need/energy', ph: 'Наприклад: павербанк, ліфт', topHint: 'Почніть із цих десяти — вони найбільше допомагають, коли світла немає.' },
   shelter: { list: TIPS_SHELTER, order: SHELTER_GROUP_ORDER, title: 'Укриття й тривога', back: '#/shelter', ph: 'Наприклад: дрон, вікна, уламки', topHint: 'Почніть із цих десяти — вони найважливіші, коли лунає сирена.' },
+  food: { list: TIPS_FOOD, order: FOOD_GROUP_ORDER, title: 'Їжа без світла', back: '#/need/food', ph: 'Наприклад: термос, консерви, суміш', topHint: 'Почніть із цих десяти — вони бережуть і продукти, і здоров’я, коли світла немає.' },
 };
 
 /** Номер поради за її місцем у своєму списку. @param {Tip} tip */
 export const tipNo = (tip) => {
-  for (const list of [TIPS_HEAT, TIPS_ENERGY, TIPS_SHELTER]) {
+  for (const list of [TIPS_HEAT, TIPS_ENERGY, TIPS_SHELTER, TIPS_FOOD]) {
     const i = list.indexOf(tip);
     if (i >= 0) return i + 1;
   }

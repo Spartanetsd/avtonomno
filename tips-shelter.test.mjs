@@ -58,10 +58,10 @@ test('2.9.0: джерела, рішення, уроки, розділи й ін�
   }
   for (const t of T.filter((x) => x.top)) assert.ok(t.sol || t.ls || t.go || t.tool, `${t.id}: головна порада без переходу`);
   assert.ok(new Set(T.flatMap((t) => t.src)).size >= 45, 'джерел замало');
-  // Кожен розділ із TIP_GO справді використовується, а посилання ведуть у застосунок
-  const used = new Set(T.map((t) => t.go).filter(Boolean));
+  // Кожен розділ із TIP_GO справді використовується якоюсь добіркою, а посилання ведуть у застосунок (2.10.0 додала «Їжу»)
+  const used = new Set(Object.values(TIP_SETS).flatMap((x) => x.list).map((t) => t.go).filter(Boolean));
   for (const href of Object.keys(TIP_GO)) {
-    assert.match(href, /^#\/(shelter|prep|bag|sheet|aid|have\/repair|tips\/energy\?g=(net|phone))$/, href);
+    assert.match(href, /^#\/(shelter|prep|bag|sheet|aid|have\/repair|calc\/(heat|water)|tips\/energy\?g=(net|phone)|tips\/heat\?g=safe)$/, href);
     assert.ok(used.has(href), `розділ ${href} ніде не використано`);
   }
   // Перша допомога — лише посиланням на розділ за наказом МОЗ № 441
@@ -206,7 +206,7 @@ test('2.9.0: екран добірки — заголовок, чипи, гол�
   assert.ok(v.html.includes('«Цікаво знати»'), 'підказка згадує новий блок');
   assert.equal((v.html.match(/data-act="tool" data-v="breathe"/g) || []).length, 2);
   assert.equal((v.html.match(/data-act="tool" data-v="signal"/g) || []).length, 1);
-  for (const href of Object.keys(TIP_GO)) assert.ok(v.html.includes(`href="${href}"`), href);
+  for (const href of new Set(T.map((t) => t.go).filter(Boolean))) assert.ok(v.html.includes(`href="${href}"`), href);
   const top = tipsScreens.shelter(new URLSearchParams('g=top'));
   assert.equal((top.html.match(/<li class="tip top"/g) || []).length, 10);
   assert.equal((top.html.match(/<details class="tip-x" open>/g) || []).length, 10, 'головні — розгорнуті');
